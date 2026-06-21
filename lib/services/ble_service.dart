@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:encrypt/encrypt.dart' as enc;
@@ -62,6 +63,10 @@ class BleService {
   }
 
   Future<bool> requestPermissions() async {
+    if (Platform.isIOS) {
+      // iOS handles Bluetooth via Info.plist — no runtime permission needed
+      return true;
+    }
     final statuses = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
