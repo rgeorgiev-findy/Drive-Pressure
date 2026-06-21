@@ -16,6 +16,12 @@ workflows:
         script: flutter pub get
       - name: Generate app icons
         script: dart run flutter_launcher_icons
+      - name: Set up keychain
+        script: keychain initialize
+      - name: Add certificates to keychain
+        script: keychain add-certificates
+      - name: Set up provisioning profiles
+        script: xcode-project use-profiles
       - name: Build signed IPA
         script: flutter build ipa --release
       - name: Upload to TestFlight
