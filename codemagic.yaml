@@ -18,13 +18,18 @@ workflows:
         script: dart run flutter_launcher_icons
       - name: Build signed IPA
         script: flutter build ipa --release
+      - name: Upload to TestFlight
+        script: |
+          IPA=$(find build/ios/ipa -name "*.ipa" | head -1)
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --username "$APPLE_ID" \
+            --password "$APP_SPECIFIC_PASSWORD" \
+            --verbose
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:
-      app_store_connect:
-        apple_id: $APPLE_ID
-        password: $APP_SPECIFIC_PASSWORD
-        submit_to_testflight: true
       email:
         recipients:
           - rgeorgiev@findy.eu
