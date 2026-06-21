@@ -18,8 +18,8 @@ class PairBleScreen extends StatefulWidget {
 }
 
 class _PairBleScreenState extends State<PairBleScreen> {
-  // Only show sensors triggered by LF or DeltaP (active pairing signal)
   final Map<String, SensorPacket> _candidates = {};
+  final List<String> _order = []; // stable insertion order
   StreamSubscription<SensorPacket>? _sub;
   bool _scanning = false;
 
@@ -38,7 +38,10 @@ class _PairBleScreenState extends State<PairBleScreen> {
   void _onPacket(SensorPacket packet) {
     if (!packet.isPairingCandidate) return;
     if (!mounted) return;
-    setState(() => _candidates[packet.mac] = packet);
+    setState(() {
+      if (!_candidates.containsKey(packet.mac)) _order.add(packet.mac);
+      _candidates[packet.mac] = packet;
+    });
   }
 
   Future<void> _selectSensor(SensorPacket packet) async {
@@ -57,8 +60,10 @@ class _PairBleScreenState extends State<PairBleScreen> {
   Widget build(BuildContext context) {
     final posLabel = widget.tirePosition.label;
     final posShort = widget.tirePosition.shortLabel;
-    final sorted = _candidates.values.toList()
-      ..sort((a, b) => b.rssi.compareTo(a.rssi));
+    final sorted = _order
+        .where(_candidates.containsKey)
+        .map((mac) => _candidates[mac]!)
+        .toList();
 
     return Scaffold(
       body: AppBackground(
