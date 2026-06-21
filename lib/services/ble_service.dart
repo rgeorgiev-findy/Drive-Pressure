@@ -166,8 +166,19 @@ class BleService {
 
     final batteryLow = ((payload[6] >> 1) & 0x01) == 1;
 
+    // On iOS, r.device.remoteId is a random UUID — extract real MAC from payload bytes [7-12]
+    // On Android, remoteId is already the real BLE MAC address
+    final String mac;
+    if (Platform.isIOS) {
+      mac = payload.sublist(7, 13)
+          .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
+          .join(':');
+    } else {
+      mac = r.device.remoteId.str;
+    }
+
     return SensorPacket(
-      mac: r.device.remoteId.str,
+      mac: mac,
       pressureBar: pressureBar,
       temperatureC: tempC,
       statusRaw: status,
