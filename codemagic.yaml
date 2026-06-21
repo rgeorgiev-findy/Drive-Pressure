@@ -26,6 +26,10 @@ workflows:
         script: flutter build ipa --release
       - name: Upload to TestFlight
         script: |
+          echo "=== Searching for IPA ==="
+          find ~ -name "*.ipa" 2>/dev/null
+          find ~ -name "*.xcarchive" 2>/dev/null | head -5
+          ls -la build/ios/ 2>/dev/null || echo "No build/ios directory"
           IPA=$(find ~ -name "*.ipa" 2>/dev/null | head -1)
           echo "Found IPA: $IPA"
           xcrun altool --upload-app \
