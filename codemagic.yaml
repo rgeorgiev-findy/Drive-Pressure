@@ -1,0 +1,30 @@
+workflows:
+  ios-no-signing:
+    name: iOS IPA (no signing)
+    max_build_duration: 60
+    environment:
+      flutter: 3.44.2
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Pod install
+        script: |
+          cd ios
+          pod install
+      - name: Build unsigned IPA
+        script: |
+          flutter build ios --release --no-codesign
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/Runner.app
+          zip -r DrivePressure.ipa Payload
+    artifacts:
+      - DrivePressure.ipa
+    publishing:
+      email:
+        recipients:
+          - rgeorgiev@findy.eu
+        notify:
+          success: true
+          failure: true
