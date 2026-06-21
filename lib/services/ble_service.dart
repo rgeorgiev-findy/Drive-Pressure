@@ -170,7 +170,7 @@ class BleService {
     // On Android, remoteId is already the real BLE MAC address
     final String mac;
     if (Platform.isIOS) {
-      mac = payload.sublist(7, 13)
+      mac = payload.sublist(7, 13).reversed
           .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
           .join(':');
     } else {
