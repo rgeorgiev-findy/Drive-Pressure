@@ -28,7 +28,10 @@ workflows:
         script: |
           ARCHIVE=$(find ~ -name "*.xcarchive" 2>/dev/null | head -1)
           echo "Archive: $ARCHIVE"
-          PROFILE_UUID=$(find ~/Library/MobileDevice/Provisioning\ Profiles -name "*.mobileprovision" 2>/dev/null | head -1 | xargs -I{} /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin 2>/dev/null || security cms -D -i $(find ~/Library/MobileDevice/Provisioning\ Profiles -name "*.mobileprovision" 2>/dev/null | head -1) 2>/dev/null | /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin 2>/dev/null)
+          PROFILE_FILE=$(find ~/Library/MobileDevice/Provisioning\ Profiles -name "*.mobileprovision" 2>/dev/null | head -1)
+          echo "Profile file: $PROFILE_FILE"
+          security cms -D -i "$PROFILE_FILE" > /tmp/profile.plist
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" /tmp/profile.plist)
           echo "Profile UUID: $PROFILE_UUID"
           cat > /tmp/ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
