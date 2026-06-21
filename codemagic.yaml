@@ -1,25 +1,30 @@
 workflows:
-  ios-no-signing:
-    name: iOS IPA (no signing)
+  ios-testflight:
+    name: iOS TestFlight
     max_build_duration: 60
     environment:
       flutter: 3.44.2
       xcode: latest
       cocoapods: default
+      groups:
+        - ios
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: eu.findy.drivePressure
     scripts:
       - name: Get Flutter packages
         script: flutter pub get
       - name: Generate app icons
         script: dart run flutter_launcher_icons
-      - name: Build unsigned IPA
-        script: |
-          flutter build ios --release --no-codesign
-          mkdir -p Payload
-          cp -r build/ios/iphoneos/Runner.app Payload/Runner.app
-          zip -r DrivePressure.ipa Payload
+      - name: Build signed IPA
+        script: flutter build ipa --release
     artifacts:
-      - DrivePressure.ipa
+      - build/ios/ipa/*.ipa
     publishing:
+      app_store_connect:
+        apple_id: $APPLE_ID
+        password: $APP_SPECIFIC_PASSWORD
+        submit_to_testflight: true
       email:
         recipients:
           - rgeorgiev@findy.eu
