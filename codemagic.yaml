@@ -24,13 +24,31 @@ workflows:
         script: xcode-project use-profiles
       - name: Build signed IPA
         script: flutter build ipa --release
+      - name: Export IPA from archive
+        script: |
+          ARCHIVE=$(find ~ -name "*.xcarchive" 2>/dev/null | head -1)
+          echo "Archive: $ARCHIVE"
+          cat > /tmp/ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportPath /tmp/ipa_export \
+            -exportOptionsPlist /tmp/ExportOptions.plist
       - name: Upload to TestFlight
         script: |
-          echo "=== Searching for IPA ==="
-          find ~ -name "*.ipa" 2>/dev/null
-          find ~ -name "*.xcarchive" 2>/dev/null | head -5
-          ls -la build/ios/ 2>/dev/null || echo "No build/ios directory"
-          IPA=$(find ~ -name "*.ipa" 2>/dev/null | head -1)
+          IPA=$(find /tmp/ipa_export -name "*.ipa" | head -1)
           echo "Found IPA: $IPA"
           xcrun altool --upload-app \
             --type ios \
