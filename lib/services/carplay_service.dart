@@ -111,9 +111,9 @@ class CarPlayService {
     final isLow = packet != null &&
         packet.pressureBar < LimitsService.instance.minPressureBar;
 
-    // Generate sparklines — colours match the phone app theme
-    final pChart = await _sparkline(pos, 'pressure', const ui.Color(0xFF34E3FF), 120, 44);
-    final tChart = await _sparkline(pos, 'temp', const ui.Color(0xFFFFB02E), 80, 44);
+    // 88×88 square — CarPlay forces images to square icon size (44pt @2x)
+    final pChart = await _sparkline(pos, 'pressure', const ui.Color(0xFF34E3FF), 88, 88);
+    final tChart = await _sparkline(pos, 'temp', const ui.Color(0xFFFFB02E), 88, 88);
 
     if (packet == null) {
       return CPListItem(
@@ -172,11 +172,11 @@ class CarPlayService {
       final recorder = ui.PictureRecorder();
       final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, w, h));
 
-      // Background matches AppColors.bg (#08111C)
+      // Background: AppColors.bg with rounded corners
       canvas.drawRRect(
         ui.RRect.fromRectAndRadius(
           ui.Rect.fromLTWH(0, 0, w, h),
-          const ui.Radius.circular(6),
+          const ui.Radius.circular(10),
         ),
         ui.Paint()..color = const ui.Color(0xFF08111C),
       );
@@ -184,28 +184,30 @@ class CarPlayService {
       final minV = data.reduce(math.min);
       final maxV = data.reduce(math.max);
       final range = maxV - minV;
-      const pad = 6.0;
+      const padX = 8.0;
+      const padTop = 10.0;
+      const padBot = 10.0;
 
-      double _x(int i) => pad + (i / (data.length - 1)) * (w - pad * 2);
+      double _x(int i) => padX + (i / (data.length - 1)) * (w - padX * 2);
       double _y(double v) => range < 0.001
           ? h / 2
-          : (h - pad) - ((v - minV) / range) * (h - pad * 2);
+          : (h - padBot) - ((v - minV) / range) * (h - padTop - padBot);
 
-      // Fill under curve
+      // Subtle fill under curve
       final fill = ui.Path();
       fill.moveTo(_x(0), _y(data[0]));
       for (int i = 1; i < data.length; i++) fill.lineTo(_x(i), _y(data[i]));
-      fill.lineTo(_x(data.length - 1), h - pad);
-      fill.lineTo(_x(0), h - pad);
+      fill.lineTo(_x(data.length - 1), h - padBot);
+      fill.lineTo(_x(0), h - padBot);
       fill.close();
       canvas.drawPath(
         fill,
         ui.Paint()
-          ..color = ui.Color.fromARGB(38, color.red, color.green, color.blue)
+          ..color = ui.Color.fromARGB(50, color.red, color.green, color.blue)
           ..style = ui.PaintingStyle.fill,
       );
 
-      // Sparkline
+      // Sparkline — thicker for square format
       final line = ui.Path();
       line.moveTo(_x(0), _y(data[0]));
       for (int i = 1; i < data.length; i++) line.lineTo(_x(i), _y(data[i]));
@@ -213,7 +215,7 @@ class CarPlayService {
         line,
         ui.Paint()
           ..color = color
-          ..strokeWidth = 2.0
+          ..strokeWidth = 3.0
           ..style = ui.PaintingStyle.stroke
           ..strokeCap = ui.StrokeCap.round
           ..strokeJoin = ui.StrokeJoin.round,
@@ -222,8 +224,17 @@ class CarPlayService {
       // End-point dot
       canvas.drawCircle(
         ui.Offset(_x(data.length - 1), _y(data.last)),
-        3.0,
+        4.5,
         ui.Paint()..color = color,
+      );
+
+      // Thin bottom border line for style
+      canvas.drawLine(
+        ui.Offset(padX, h - padBot + 3),
+        ui.Offset(w - padX, h - padBot + 3),
+        ui.Paint()
+          ..color = ui.Color.fromARGB(60, color.red, color.green, color.blue)
+          ..strokeWidth = 1.0,
       );
 
       final picture = recorder.endRecording();
