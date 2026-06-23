@@ -22,9 +22,9 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     ) {
         carPlaySceneDelegate = self
         self.interfaceController = interfaceController
-        windowBounds = scene.carPlayWindow.bounds.isEmpty
+        windowBounds = scene.carWindow.bounds.isEmpty
             ? CGRect(x: 0, y: 0, width: 800, height: 480)
-            : scene.carPlayWindow.bounds
+            : scene.carWindow.bounds
 
         // Dark background + vehicle body shape behind the grid template
         let vc = UIViewController()
@@ -34,7 +34,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         vc.view.addSubview(bv)
         bgView = bv
         bgViewController = vc
-        scene.carPlayWindow.rootViewController = vc
+        scene.carWindow.rootViewController = vc
 
         refreshTemplate()
     }
