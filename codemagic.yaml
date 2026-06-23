@@ -47,7 +47,17 @@ workflows:
           set -e
           flutter build ios --release --no-codesign --verbose 2>&1 | tail -100
       - name: Build signed IPA
-        script: xcode-project build-ipa --workspace "ios/Runner.xcworkspace" --scheme "Runner"
+        script: |
+          set -e
+          echo "=== Signing identity in keychain ==="
+          security find-identity -v -p codesigning login.keychain 2>/dev/null || true
+          echo "=== Installed provisioning profiles ==="
+          ls ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null | head -5 || true
+          echo "=== Xcode project signing settings ==="
+          xcodebuild -workspace "ios/Runner.xcworkspace" -scheme "Runner" \
+            -showBuildSettings 2>&1 | grep -E "CODE_SIGN|DEVELOPMENT_TEAM|PROVISIONING" || true
+          echo "=== Building IPA ==="
+          xcode-project build-ipa --workspace "ios/Runner.xcworkspace" --scheme "Runner" --verbose
       - name: Upload to TestFlight
         script: |
           IPA=$(find build/ios/ipa -name "*.ipa" | head -1)
