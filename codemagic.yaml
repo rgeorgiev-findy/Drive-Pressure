@@ -60,15 +60,15 @@ workflows:
       - name: Upload to TestFlight
         script: |
           IPA=$(find build/ios/ipa -name "*.ipa" | head -1)
-          echo "Uploading: $IPA"
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA" \
-            --username "$APPLE_ID" \
-            --password "$APP_SPECIFIC_PASSWORD" \
-            --verbose > /tmp/altool.log 2>&1
+          echo "IPA: $IPA"
+          /Applications/Transporter.app/Contents/MacOS/Transporter \
+            -m upload \
+            -u "$APPLE_ID" \
+            -p "$APP_SPECIFIC_PASSWORD" \
+            -f "$IPA" \
+            -v > /tmp/transporter.log 2>&1
           STATUS=$?
-          cat /tmp/altool.log
+          cat /tmp/transporter.log
           exit $STATUS
     artifacts:
       - build/ios/ipa/*.ipa
