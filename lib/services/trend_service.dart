@@ -29,15 +29,12 @@ class TrendService {
   }
 
   TirePosition? _positionOf(String mac) {
-    // Check legacy SensorStore
     for (final e in SensorStore.instance.pairedMacs.entries) {
       if (e.value == mac) return e.key;
     }
-    // Check active car and trailer in VehicleService
-    final vs = VehicleService.instance;
-    for (final vehicle in [vs.activeCar, vs.activeTrailer]) {
-      if (vehicle == null) continue;
-      for (final e in vs.getPairedMacs(vehicle.id).entries) {
+    // Check ALL vehicles so data is recorded regardless of active selection
+    for (final vehicle in VehicleService.instance.vehicles) {
+      for (final e in VehicleService.instance.getPairedMacs(vehicle.id).entries) {
         if (e.value == mac) return e.key;
       }
     }
