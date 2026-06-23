@@ -15,15 +15,13 @@ class CarPlayService {
   static final CarPlayService instance = CarPlayService._();
   CarPlayService._();
 
-  static const _rootId = 'findytpms_root';
-
   FlutterCarplay? _fcp;
   StreamSubscription? _trendSub;
   StreamSubscription? _vehicleSub;
   Timer? _debounce;
 
-  // "posName_pressure" / "posName_temp" → file:// path (null = not enough data)
-  final Map<String, String?> _chartCache = {};
+  // tile cache: pos.name → file:// path (single combined image per tire)
+  final Map<String, String?> _tileCache = {};
 
   void init() {
     if (!Platform.isIOS) return;
@@ -33,106 +31,101 @@ class CarPlayService {
     });
     _setRoot();
     _vehicleSub = VehicleService.instance.changes.listen((_) {
-      _chartCache.clear();
+      _tileCache.clear();
       _setRoot();
     });
     _trendSub = TrendService.instance.updates.listen(_onTrend);
   }
 
   void _onTrend(TirePosition pos) {
-    _chartCache.remove('${pos.name}_pressure');
-    _chartCache.remove('${pos.name}_temp');
+    _tileCache.remove(pos.name);
     _debounce?.cancel();
-    _debounce = Timer(const Duration(seconds: 2), _update);
+    _debounce = Timer(const Duration(seconds: 2), _setRoot);
   }
 
   Future<void> _setRoot() async {
-    final sections = await _buildSections();
-    await FlutterCarplay.setRootTemplate(
-      rootTemplate: CPListTemplate(
-        title: 'FindyTPMS',
-        sections: sections,
-        emptyViewTitleVariants: ['FindyTPMS'],
-        emptyViewSubtitleVariants: ['No vehicles configured'],
-        id: _rootId,
-      ),
-      animated: false,
-    );
-  }
-
-  Future<void> _update() async {
-    final sections = await _buildSections();
-    await _fcp?.updateListTemplateSections(
-      elementId: _rootId,
-      sections: sections,
-    );
-  }
-
-  // ─── Sections ────────────────────────────────────────────────────────────
-
-  Future<List<CPListSection>> _buildSections() async {
     final vs = VehicleService.instance;
     final car = vs.activeCar;
     final trailer = vs.activeTrailer;
 
+    CPTemplate root;
+
     if (car == null && trailer == null) {
-      return [
-        CPListSection(items: [
-          CPListItem(
-            text: 'No vehicle selected',
-            detailText: 'Open FindyTPMS and select a vehicle',
-          ),
-        ]),
-      ];
+      root = CPListTemplate(
+        title: 'FindyTPMS',
+        sections: [
+          CPListSection(items: [
+            CPListItem(
+              text: 'No vehicle selected',
+              detailText: 'Open FindyTPMS and select a vehicle',
+            ),
+          ]),
+        ],
+        emptyViewTitleVariants: ['FindyTPMS'],
+        emptyViewSubtitleVariants: ['No vehicles configured'],
+      );
+    } else if (car != null && trailer != null) {
+      final carGrid = await _gridForVehicle(
+        car, vs.getPairedMacs(car.id), tabTitle: car.name,
+      );
+      final trailerGrid = await _gridForVehicle(
+        trailer, vs.getPairedMacs(trailer.id), tabTitle: trailer.name,
+      );
+      root = CPTabBarTemplate(templates: [carGrid, trailerGrid]);
+    } else {
+      final v = car ?? trailer!;
+      root = await _gridForVehicle(v, vs.getPairedMacs(v.id));
     }
 
-    final sections = <CPListSection>[];
-    if (car != null) sections.add(await _vehicleSection(car, vs.getPairedMacs(car.id)));
-    if (trailer != null) sections.add(await _vehicleSection(trailer, vs.getPairedMacs(trailer.id)));
-    return sections;
+    await FlutterCarplay.setRootTemplate(rootTemplate: root, animated: false);
   }
 
-  Future<CPListSection> _vehicleSection(
+  // ─── Grid ─────────────────────────────────────────────────────────────────
+
+  Future<CPGridTemplate> _gridForVehicle(
     Vehicle vehicle,
-    Map<TirePosition, String> macs,
-  ) async {
-    final items = <CPListItem>[];
+    Map<TirePosition, String> macs, {
+    String? tabTitle,
+  }) async {
+    final buttons = <CPGridButton>[];
     for (final pos in vehicle.type.positions) {
-      items.add(await _tireItem(pos, macs[pos]));
+      buttons.add(await _tireButton(pos, macs[pos]));
     }
-    return CPListSection(
-      header: '${vehicle.name}  ·  ${vehicle.type.shortLabel}',
-      items: items,
+    return CPGridTemplate(
+      title: '${vehicle.name}  ·  ${vehicle.type.shortLabel}',
+      buttons: buttons,
+      tabTitle: tabTitle,
     );
   }
 
-  Future<CPListItem> _tireItem(TirePosition pos, String? mac) async {
+  Future<CPGridButton> _tireButton(TirePosition pos, String? mac) async {
     final packet = mac != null ? BleService.instance.latest[mac] : null;
     final isLow = packet != null &&
         packet.pressureBar < LimitsService.instance.minPressureBar;
 
-    // 88×88 square — CarPlay forces images to square icon size (44pt @2x)
-    final pChart = await _sparkline(pos, 'pressure', const ui.Color(0xFF34E3FF), 88, 88);
-    final tChart = await _sparkline(pos, 'temp', const ui.Color(0xFFFFB02E), 88, 88);
+    final pReadings = TrendService.instance.pressure[pos] ?? [];
+    final tReadings = TrendService.instance.temp[pos] ?? [];
+    final pArrow = _arrow(pReadings);
+    final tArrow = _arrow(tReadings);
+
+    final tilePath = await _tile(pos, packet, isLow);
+
+    String shortTitle;
+    String longTitle;
 
     if (packet == null) {
-      return CPListItem(
-        text: '${pos.shortLabel}   No signal',
-        detailText: pos.label,
-        image: pChart,
-        trailingImage: tChart,
-      );
+      shortTitle = '${pos.shortLabel}  No signal';
+      longTitle = '${pos.label} · No signal';
+    } else {
+      shortTitle =
+          '${pos.shortLabel}  ${isLow ? "⚠ " : ""}${packet.pressureBar.toStringAsFixed(1)}$pArrow  ${packet.temperatureC}°$tArrow';
+      longTitle =
+          '${pos.label} · ${isLow ? "⚠ " : ""}${packet.pressureBar.toStringAsFixed(2)} bar $pArrow · ${packet.temperatureC}°C $tArrow';
     }
 
-    final pArrow = _arrow(TrendService.instance.pressure[pos] ?? []);
-    final tArrow = _arrow(TrendService.instance.temp[pos] ?? []);
-
-    return CPListItem(
-      text: '${pos.shortLabel}   ${isLow ? "⚠ " : ""}'
-          '${packet.pressureBar.toStringAsFixed(2)} bar  $pArrow',
-      detailText: '${packet.temperatureC}°C  $tArrow',
-      image: pChart,
-      trailingImage: tChart,
+    return CPGridButton(
+      titleVariants: [longTitle, shortTitle],
+      image: tilePath,
     );
   }
 
@@ -145,116 +138,227 @@ class CarPlayService {
     return '→';
   }
 
-  // ─── Sparkline renderer ───────────────────────────────────────────────────
+  // ─── Tile renderer ────────────────────────────────────────────────────────
+  //
+  // 200×200 image: top half = pressure sparkline (cyan),
+  //               bottom half = temp sparkline (amber).
 
-  Future<String?> _sparkline(
-    TirePosition pos,
-    String type,
-    ui.Color color,
-    double w,
-    double h,
+  Future<String> _tile(
+    TirePosition pos, SensorPacket? packet, bool isLow,
   ) async {
-    final key = '${pos.name}_$type';
-    if (_chartCache.containsKey(key)) return _chartCache[key];
-
-    final raw = type == 'pressure'
-        ? TrendService.instance.pressure[pos]
-        : TrendService.instance.temp[pos];
-
-    if (raw == null || raw.length < 2) {
-      _chartCache[key] = null;
-      return null;
+    final key = pos.name;
+    if (_tileCache.containsKey(key) && _tileCache[key] != null) {
+      return _tileCache[key]!;
     }
-
-    final data = raw.length > 20 ? raw.sublist(raw.length - 20) : List<double>.from(raw);
-
     try {
-      final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, w, h));
-
-      // Background: AppColors.bg with rounded corners
-      canvas.drawRRect(
-        ui.RRect.fromRectAndRadius(
-          ui.Rect.fromLTWH(0, 0, w, h),
-          const ui.Radius.circular(10),
-        ),
-        ui.Paint()..color = const ui.Color(0xFF08111C),
-      );
-
-      final minV = data.reduce(math.min);
-      final maxV = data.reduce(math.max);
-      final range = maxV - minV;
-      const padX = 8.0;
-      const padTop = 10.0;
-      const padBot = 10.0;
-
-      double _x(int i) => padX + (i / (data.length - 1)) * (w - padX * 2);
-      double _y(double v) => range < 0.001
-          ? h / 2
-          : (h - padBot) - ((v - minV) / range) * (h - padTop - padBot);
-
-      // Subtle fill under curve
-      final fill = ui.Path();
-      fill.moveTo(_x(0), _y(data[0]));
-      for (int i = 1; i < data.length; i++) fill.lineTo(_x(i), _y(data[i]));
-      fill.lineTo(_x(data.length - 1), h - padBot);
-      fill.lineTo(_x(0), h - padBot);
-      fill.close();
-      canvas.drawPath(
-        fill,
-        ui.Paint()
-          ..color = ui.Color.fromARGB(50, color.red, color.green, color.blue)
-          ..style = ui.PaintingStyle.fill,
-      );
-
-      // Sparkline — thicker for square format
-      final line = ui.Path();
-      line.moveTo(_x(0), _y(data[0]));
-      for (int i = 1; i < data.length; i++) line.lineTo(_x(i), _y(data[i]));
-      canvas.drawPath(
-        line,
-        ui.Paint()
-          ..color = color
-          ..strokeWidth = 3.0
-          ..style = ui.PaintingStyle.stroke
-          ..strokeCap = ui.StrokeCap.round
-          ..strokeJoin = ui.StrokeJoin.round,
-      );
-
-      // End-point dot
-      canvas.drawCircle(
-        ui.Offset(_x(data.length - 1), _y(data.last)),
-        4.5,
-        ui.Paint()..color = color,
-      );
-
-      // Thin bottom border line for style
-      canvas.drawLine(
-        ui.Offset(padX, h - padBot + 3),
-        ui.Offset(w - padX, h - padBot + 3),
-        ui.Paint()
-          ..color = ui.Color.fromARGB(60, color.red, color.green, color.blue)
-          ..strokeWidth = 1.0,
-      );
-
-      final picture = recorder.endRecording();
-      final img = await picture.toImage(w.toInt(), h.toInt());
-      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-      if (bytes == null) {
-        _chartCache[key] = null;
-        return null;
-      }
-
-      final file = File('${Directory.systemTemp.path}/ftp_${pos.name}_$type.png');
-      await file.writeAsBytes(bytes.buffer.asUint8List());
-      final path = 'file://${file.path}';
-      _chartCache[key] = path;
-      return path;
+      return await _renderTile(pos, packet, isLow);
     } catch (_) {
-      _chartCache[key] = null;
-      return null;
+      return await _darkSquare(pos);
     }
   }
+
+  // Minimal placeholder — just a dark rounded square
+  Future<String> _darkSquare(TirePosition pos) async {
+    const size = 200.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, size, size));
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(
+        ui.Rect.fromLTWH(0, 0, size, size),
+        const ui.Radius.circular(14),
+      ),
+      ui.Paint()..color = const ui.Color(0xFF08111C),
+    );
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(size.toInt(), size.toInt());
+    final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!;
+    final file = File('${Directory.systemTemp.path}/ftp_ph_${pos.name}.png');
+    await file.writeAsBytes(bytes.buffer.asUint8List());
+    final path = 'file://${file.path}';
+    _tileCache[pos.name] = path;
+    return path;
+  }
+
+  Future<String> _renderTile(
+    TirePosition pos, SensorPacket? packet, bool isLow,
+  ) async {
+    final key = pos.name;
+
+    const size = 200.0;
+    const half = size / 2;
+    const pad = 10.0;
+    const lineW = 3.5;
+    const dotR = 5.0;
+    const cornerR = 14.0;
+
+    final pColor = isLow
+        ? const ui.Color(0xFFFF5470)  // red alert
+        : const ui.Color(0xFF34E3FF); // cyan
+    const tColor = ui.Color(0xFFFFB02E); // amber
+
+    final pData = _recent(TrendService.instance.pressure[pos]);
+    final tData = _recent(TrendService.instance.temp[pos]);
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, size, size));
+
+    // ── Background ──────────────────────────────────────────────────────────
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(
+        ui.Rect.fromLTWH(0, 0, size, size),
+        const ui.Radius.circular(cornerR),
+      ),
+      ui.Paint()..color = const ui.Color(0xFF08111C),
+    );
+
+    // Colour border (thin, matches primary metric status)
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(
+        ui.Rect.fromLTWH(0, 0, size, size),
+        const ui.Radius.circular(cornerR),
+      ),
+      ui.Paint()
+        ..color = pColor.withOpacity(0.35)
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+
+    // ── Divider ─────────────────────────────────────────────────────────────
+    canvas.drawLine(
+      ui.Offset(pad, half),
+      ui.Offset(size - pad, half),
+      ui.Paint()
+        ..color = const ui.Color(0xFF1E3040)
+        ..strokeWidth = 1.0,
+    );
+
+    // ── Pressure sparkline (top half) ───────────────────────────────────────
+    _drawSparkline(
+      canvas,
+      data: pData,
+      color: pColor,
+      rect: ui.Rect.fromLTWH(pad, pad, size - pad * 2, half - pad * 2),
+      lineWidth: lineW,
+      dotRadius: dotR,
+    );
+
+    // ── Temp sparkline (bottom half) ────────────────────────────────────────
+    _drawSparkline(
+      canvas,
+      data: tData,
+      color: tColor,
+      rect: ui.Rect.fromLTWH(pad, half + pad, size - pad * 2, half - pad * 2),
+      lineWidth: lineW,
+      dotRadius: dotR,
+    );
+
+    // ── Position label (top-left corner) ────────────────────────────────────
+    _drawLabel(canvas, pos.shortLabel, const ui.Offset(pad + 4, pad + 4), pColor);
+
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(size.toInt(), size.toInt());
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+
+    if (bytes == null) {
+      _tileCache[key] = null;
+      return _fallbackAsset();
+    }
+
+    final file = File('${Directory.systemTemp.path}/ftp_tile_${pos.name}.png');
+    await file.writeAsBytes(bytes.buffer.asUint8List());
+    final path = 'file://${file.path}';
+    _tileCache[key] = path;
+    return path;
+  } // end _renderTile
+
+  List<double>? _recent(List<double>? data) {
+    if (data == null || data.length < 2) return null;
+    return data.length > 20 ? data.sublist(data.length - 20) : List.from(data);
+  }
+
+  void _drawSparkline(
+    ui.Canvas canvas, {
+    required List<double>? data,
+    required ui.Color color,
+    required ui.Rect rect,
+    required double lineWidth,
+    required double dotRadius,
+  }) {
+    if (data == null || data.length < 2) {
+      // No-data placeholder: dashed centre line
+      canvas.drawLine(
+        ui.Offset(rect.left, rect.center.dy),
+        ui.Offset(rect.right, rect.center.dy),
+        ui.Paint()
+          ..color = color.withOpacity(0.2)
+          ..strokeWidth = 1.5,
+      );
+      return;
+    }
+
+    final minV = data.reduce(math.min);
+    final maxV = data.reduce(math.max);
+    final range = maxV - minV;
+
+    double px(int i) =>
+        rect.left + (i / (data.length - 1)) * rect.width;
+    double py(double v) => range < 0.001
+        ? rect.center.dy
+        : rect.bottom - ((v - minV) / range) * rect.height;
+
+    // Fill
+    final fill = ui.Path()..moveTo(px(0), py(data[0]));
+    for (int i = 1; i < data.length; i++) fill.lineTo(px(i), py(data[i]));
+    fill.lineTo(px(data.length - 1), rect.bottom);
+    fill.lineTo(px(0), rect.bottom);
+    fill.close();
+    canvas.drawPath(
+      fill,
+      ui.Paint()
+        ..color = ui.Color.fromARGB(45, color.red, color.green, color.blue)
+        ..style = ui.PaintingStyle.fill,
+    );
+
+    // Line
+    final line = ui.Path()..moveTo(px(0), py(data[0]));
+    for (int i = 1; i < data.length; i++) line.lineTo(px(i), py(data[i]));
+    canvas.drawPath(
+      line,
+      ui.Paint()
+        ..color = color
+        ..strokeWidth = lineWidth
+        ..style = ui.PaintingStyle.stroke
+        ..strokeCap = ui.StrokeCap.round
+        ..strokeJoin = ui.StrokeJoin.round,
+    );
+
+    // Endpoint dot
+    canvas.drawCircle(
+      ui.Offset(px(data.length - 1), py(data.last)),
+      dotRadius,
+      ui.Paint()..color = color,
+    );
+  }
+
+  void _drawLabel(
+    ui.Canvas canvas,
+    String text,
+    ui.Offset offset,
+    ui.Color color,
+  ) {
+    final pb = ui.ParagraphBuilder(
+      ui.ParagraphStyle(
+        fontSize: 18,
+        fontWeight: ui.FontWeight.w700,
+      ),
+    )
+      ..pushStyle(ui.TextStyle(color: color, fontSize: 18, fontWeight: ui.FontWeight.w700))
+      ..addText(text);
+    final para = pb.build()..layout(const ui.ParagraphConstraints(width: 60));
+    canvas.drawParagraph(para, offset);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   void dispose() {
     _trendSub?.cancel();
