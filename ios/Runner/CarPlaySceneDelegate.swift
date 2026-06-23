@@ -4,17 +4,14 @@ import CarPlay
 // Reachable from AppDelegate to forward Dart data
 var carPlaySceneDelegate: CarPlaySceneDelegate?
 
+// MARK: - CarPlaySceneDelegate
+
 class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
     private var interfaceController: CPInterfaceController?
-    private var bgViewController: UIViewController?
-    private var bgView: CarPlayBodyView?
+    private var dashboardVC: CarPlayDashboardViewController?
     private var vehicles: [[String: Any]] = []
-
-    // Real CarPlay screen dimensions — set on connect, used for proportional tile sizing
-    private var windowBounds: CGRect = CGRect(x: 0, y: 0, width: 800, height: 480)
-
-    // MARK: - CPTemplateApplicationSceneDelegate
+    private var windowBounds = CGRect(x: 0, y: 0, width: 800, height: 480)
 
     func templateApplicationScene(
         _ scene: CPTemplateApplicationScene,
@@ -26,17 +23,17 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
             ? CGRect(x: 0, y: 0, width: 800, height: 480)
             : scene.carWindow.bounds
 
-        // Dark background + vehicle body shape behind the grid template
-        let vc = UIViewController()
-        vc.view.backgroundColor = UIColor(r: 8, g: 17, b: 28)
-        let bv = CarPlayBodyView(frame: windowBounds)
-        bv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        vc.view.addSubview(bv)
-        bgView = bv
-        bgViewController = vc
+        // Full-screen custom dashboard as carWindow content
+        let vc = CarPlayDashboardViewController()
         scene.carWindow.rootViewController = vc
+        dashboardVC = vc
 
-        refreshTemplate()
+        // CPMapTemplate: its "map area" is our rootVC view; only the nav bar overlays on top
+        let map = CPMapTemplate()
+        map.mapButtons = []
+        interfaceController.setRootTemplate(map, animated: false, completion: nil)
+
+        if !vehicles.isEmpty { vc.update(vehicles, in: windowBounds) }
     }
 
     func templateApplicationScene(
@@ -45,248 +42,259 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     ) {
         carPlaySceneDelegate = nil
         self.interfaceController = nil
-        bgView = nil
-        bgViewController = nil
+        dashboardVC = nil
     }
-
-    // MARK: - Data from Dart
 
     func receiveVehicles(_ data: [String: Any]) {
-        if let v = data["vehicles"] as? [[String: Any]] {
-            vehicles = v
-        } else {
-            vehicles = []
-        }
+        vehicles = (data["vehicles"] as? [[String: Any]]) ?? []
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.bgView?.update(self.vehicles)
-            self.refreshTemplate()
-        }
-    }
-
-    // MARK: - Template
-
-    private func refreshTemplate() {
-        guard let ic = interfaceController else { return }
-
-        let buttons = makeButtons()
-
-        let template: CPTemplate
-        if buttons.isEmpty {
-            let item = CPListItem(text: "Open FindyTPMS on your phone",
-                                  detailText: "Select a vehicle to see live data")
-            template = CPListTemplate(title: "FindyTPMS",
-                                       sections: [CPListSection(items: [item])])
-        } else {
-            template = CPGridTemplate(title: "FindyTPMS", gridButtons: buttons)
-        }
-
-        ic.setRootTemplate(template, animated: false, completion: nil)
-    }
-
-    private func makeButtons() -> [CPGridButton] {
-        // Collect all items first so we can compute a uniform tile size
-        var items: [(pos: String, name: String, data: [String: Any]?)] = []
-        for vehicle in vehicles {
-            guard let type = vehicle["type"] as? String,
-                  let tires = vehicle["tires"] as? [String: Any] else { continue }
-            let name = vehicle["name"] as? String ?? ""
-            for pos in positions(type) {
-                items.append((pos, name, tires[pos] as? [String: Any]))
-            }
-        }
-        let tileSize = computeTileSize(count: items.count)
-        return items.map { item in
-            let img = CarPlayTile.render(pos: item.pos, vehicleName: item.name,
-                                         data: item.data, size: tileSize)
-            let pressure = item.data?["pressure"] as? Double
-            let title = pressure.map {
-                "\(item.pos.uppercased()) · \(String(format: "%.2f", $0)) bar"
-            } ?? item.pos.uppercased()
-            return CPGridButton(titleVariants: [title, item.pos.uppercased()],
-                                image: img, handler: { _ in })
-        }
-    }
-
-    private func computeTileSize(count: Int) -> CGSize {
-        let cols: CGFloat = 2
-        let rows = CGFloat(max(1, (count + 1) / 2))
-        let navBarH: CGFloat = 44
-        let tileW = windowBounds.width / cols
-        let tileH = (windowBounds.height - navBarH) / rows
-        return CGSize(width: tileW, height: tileH)
-    }
-
-    private func positions(_ type: String) -> [String] {
-        switch type {
-        case "trailer2":            return ["l", "r"]
-        case "trailer6":            return ["fl", "fr", "ml", "mr", "rl", "rr"]
-        default /* car/trailer4 */: return ["fl", "fr", "rl", "rr"]
+            dashboardVC?.update(vehicles, in: windowBounds)
         }
     }
 }
 
-// MARK: - CarPlayBodyView
+// MARK: - CarPlayDashboardViewController
 
-/// Draws the car / trailer body shape behind the grid tiles.
-class CarPlayBodyView: UIView {
-    private var vehicles: [[String: Any]] = []
+class CarPlayDashboardViewController: UIViewController {
+    private let board = CarPlayDashboardView()
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor(r: 8, g: 17, b: 28)
+        board.frame = view.bounds
+        board.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(board)
     }
-    required init?(coder: NSCoder) { super.init(coder: coder) }
 
-    func update(_ vehicles: [[String: Any]]) {
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        let top = view.safeAreaInsets.top
+        board.topInset = top > 4 ? top : 56  // fallback: standard CarPlay nav bar ~56pt
+        board.setNeedsDisplay()
+    }
+
+    func update(_ vehicles: [[String: Any]], in bounds: CGRect) {
+        board.update(vehicles, in: bounds)
+    }
+}
+
+// MARK: - CarPlayDashboardView
+// Draws the full CarPlay screen: dark background, vehicle body silhouette, and tile tiles.
+
+class CarPlayDashboardView: UIView {
+
+    var topInset: CGFloat = 56   // reserved for the CarPlay nav bar overlay
+
+    private var vehicles: [[String: Any]] = []
+    private var windowBounds = CGRect(x: 0, y: 0, width: 800, height: 480)
+
+    func update(_ vehicles: [[String: Any]], in bounds: CGRect) {
         self.vehicles = vehicles
+        windowBounds = bounds
         setNeedsDisplay()
     }
 
     override func draw(_ rect: CGRect) {
-        guard !vehicles.isEmpty else { return }
+        UIColor(r: 8, g: 17, b: 28).setFill()
+        UIRectFill(rect)
+
+        guard !vehicles.isEmpty else {
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: max(14, rect.height * 0.04), weight: .medium),
+                .foregroundColor: UIColor(r: 130, g: 160, b: 178)
+            ]
+            let s = "Open FindyTPMS on your phone" as NSString
+            let sz = s.size(withAttributes: attrs)
+            s.draw(at: CGPoint(x: rect.midX - sz.width/2, y: rect.midY - sz.height/2),
+                   withAttributes: attrs)
+            return
+        }
 
         if vehicles.count == 1 {
-            drawBody(vehicles[0], in: rect)
+            drawVehicle(vehicles[0], in: rect)
         } else {
-            drawBody(vehicles[0], in: CGRect(x: rect.minX, y: rect.minY,
-                                               width: rect.width / 2, height: rect.height))
-            // Separator
+            let half = rect.width / 2
+            drawVehicle(vehicles[0], in: CGRect(x: rect.minX, y: rect.minY, width: half, height: rect.height))
+            // Separator between car and trailer
             UIColor(r: 30, g: 48, b: 64).withAlphaComponent(0.6).setFill()
-            UIRectFill(CGRect(x: rect.midX - 0.5, y: rect.minY + 24,
-                               width: 1, height: rect.height - 48))
-            drawBody(vehicles[1], in: CGRect(x: rect.midX, y: rect.minY,
-                                              width: rect.width / 2, height: rect.height))
+            UIRectFill(CGRect(x: rect.minX + half - 0.5, y: rect.minY + topInset,
+                               width: 1, height: rect.height - topInset - 16))
+            drawVehicle(vehicles[1], in: CGRect(x: rect.minX + half, y: rect.minY, width: half, height: rect.height))
         }
     }
 
-    private func drawBody(_ vehicle: [String: Any], in rect: CGRect) {
-        let type = vehicle["type"] as? String ?? "car"
-        let name = vehicle["name"] as? String ?? ""
+    // MARK: - Vehicle section
 
-        // Phone layout dimensions per vehicle type (from vehicle_screen.dart)
-        // (layoutW × layoutH, bodyW × bodyH)
-        let phW: CGFloat, phH: CGFloat   // phone total layout size
-        let bW: CGFloat,  bH: CGFloat    // phone body size
-        let isTrailer: Bool
-        let isCar: Bool
+    private func drawVehicle(_ v: [String: Any], in r: CGRect) {
+        let type  = v["type"]  as? String ?? "car"
+        let name  = v["name"]  as? String ?? ""
+        let tires = v["tires"] as? [String: Any] ?? [:]
+
+        // Content area begins below the CarPlay nav bar
+        let contentY = r.minY + topInset
+        let contentH = r.height - topInset
+
+        // Vehicle name label, drawn just inside the content area at top
+        var labelH: CGFloat = 0
+        if !name.isEmpty {
+            let a: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: max(10, contentH * 0.042), weight: .medium),
+                .foregroundColor: UIColor(r: 130, g: 160, b: 178),
+                .kern: 1.5 as AnyObject
+            ]
+            let ns = name.uppercased() as NSString
+            let nSz = ns.size(withAttributes: a)
+            labelH = nSz.height + 10
+            ns.draw(at: CGPoint(x: r.midX - nSz.width/2, y: contentY + 4), withAttributes: a)
+        }
+
+        let tileR = CGRect(x: r.minX, y: contentY + labelH,
+                            width: r.width, height: contentH - labelH)
 
         switch type {
-        case "car":
-            // SizedBox(width:340, height:392), body 120×272
-            phW = 340; phH = 392; bW = 120; bH = 272
-            isTrailer = false; isCar = true
-        case "trailer2":
-            // Row layout: TireSlot(96) + gap(10) + body(100) + gap(10) + TireSlot(96)
-            // Total ≈ 312×107. We treat the body as a HORIZONTAL box.
-            phW = 312; phH = 107; bW = 100; bH = 107
-            isTrailer = true; isCar = false
-        case "trailer4":
-            // SizedBox(width:340, height:300), body 120×200
-            phW = 340; phH = 300; bW = 120; bH = 200
-            isTrailer = true; isCar = false
-        case "trailer6":
-            // SizedBox(width:340, height:460), body 120×370
-            phW = 340; phH = 460; bW = 120; bH = 370
-            isTrailer = true; isCar = false
-        default:
-            phW = 340; phH = 392; bW = 120; bH = 272
-            isTrailer = false; isCar = true
+        case "trailer2": drawLayout2(tires, in: tileR)
+        case "trailer6": drawLayout6(tires, in: tileR)
+        default:         drawLayout4(tires, in: tileR, type: type)
         }
-
-        let scale = min(rect.width / phW, rect.height / phH) * 0.90
-        let lW = phW * scale, lH = phH * scale
-        let ox = rect.minX + (rect.width  - lW) / 2
-        let oy = rect.minY + (rect.height - lH) / 2
-
-        // Vehicle name label
-        let nameAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 10, weight: .medium),
-            .foregroundColor: UIColor(r: 130, g: 160, b: 178),
-            .kern: 2.0 as AnyObject
-        ]
-        let nameStr = name.uppercased() as NSString
-        let nSize = nameStr.size(withAttributes: nameAttrs)
-        nameStr.draw(at: CGPoint(x: rect.midX - nSize.width / 2,
-                                  y: oy - 20), withAttributes: nameAttrs)
-
-        let scaledBodyW = bW * scale
-        let scaledBodyH = bH * scale
-        let bodyX = ox + (lW - scaledBodyW) / 2
-        let bodyY = oy + (lH - scaledBodyH) / 2
-
-        drawCarBody(in: CGRect(x: bodyX, y: bodyY, width: scaledBodyW, height: scaledBodyH),
-                    isTrailer: isTrailer, isCar: isCar)
     }
 
-    private func drawCarBody(in r: CGRect, isTrailer: Bool, isCar: Bool = false) {
+    // MARK: - Tile layouts
+
+    /// car / trailer4 —  FL │ body │ FR
+    ///                   RL │      │ RR
+    private func drawLayout4(_ tires: [String: Any], in r: CGRect, type: String) {
+        let gap  = max(6, r.width  * 0.014)
+        let tW   = r.width  * 0.26
+        let tH   = r.height * 0.46
+        let bW   = r.width  - 2*tW - 4*gap
+        let bH   = r.height - 2*gap
+
+        let lx   = r.minX + gap
+        let rx   = r.maxX - gap - tW
+        let bx   = r.minX + tW + 2*gap
+        let topY = r.minY + gap
+        let botY = r.maxY - gap - tH
+        let bY   = r.midY - bH/2
+
+        CarPlayTile.draw(pos: "fl", data: tires["fl"] as? [String:Any],
+                          in: CGRect(x:lx, y:topY, width:tW, height:tH))
+        CarPlayTile.draw(pos: "fr", data: tires["fr"] as? [String:Any],
+                          in: CGRect(x:rx, y:topY, width:tW, height:tH))
+        CarPlayTile.draw(pos: "rl", data: tires["rl"] as? [String:Any],
+                          in: CGRect(x:lx, y:botY, width:tW, height:tH))
+        CarPlayTile.draw(pos: "rr", data: tires["rr"] as? [String:Any],
+                          in: CGRect(x:rx, y:botY, width:tW, height:tH))
+        drawBodyShape(type: type, in: CGRect(x:bx, y:bY, width:bW, height:bH))
+    }
+
+    /// trailer2 —  L │ body │ R
+    private func drawLayout2(_ tires: [String: Any], in r: CGRect) {
+        let gap = max(6, r.width  * 0.014)
+        let tW  = r.width  * 0.28
+        let tH  = r.height * 0.65
+        let bW  = r.width  - 2*tW - 4*gap
+        let bH  = r.height * 0.55
+
+        let lx  = r.minX + gap
+        let rx  = r.maxX - gap - tW
+        let bx  = r.minX + tW + 2*gap
+
+        CarPlayTile.draw(pos: "l", data: tires["l"] as? [String:Any],
+                          in: CGRect(x:lx, y:r.midY - tH/2, width:tW, height:tH))
+        CarPlayTile.draw(pos: "r", data: tires["r"] as? [String:Any],
+                          in: CGRect(x:rx, y:r.midY - tH/2, width:tW, height:tH))
+        drawBodyShape(type: "trailer2", in: CGRect(x:bx, y:r.midY - bH/2, width:bW, height:bH))
+    }
+
+    /// trailer6 —  FL │      │ FR
+    ///             ML │ body │ MR
+    ///             RL │      │ RR
+    private func drawLayout6(_ tires: [String: Any], in r: CGRect) {
+        let gap = max(6, r.width  * 0.012)
+        let tW  = r.width  * 0.24
+        let tH  = (r.height - 4*gap) / 3
+        let bW  = r.width  - 2*tW - 4*gap
+        let bH  = r.height - 2*gap
+
+        let lx  = r.minX + gap
+        let rx  = r.maxX - gap - tW
+        let bx  = r.minX + tW + 2*gap
+
+        for (row, pair) in [("fl","fr"), ("ml","mr"), ("rl","rr")].enumerated() {
+            let y = r.minY + CGFloat(row) * (tH + gap)
+            CarPlayTile.draw(pos: pair.0, data: tires[pair.0] as? [String:Any],
+                              in: CGRect(x:lx, y:y, width:tW, height:tH))
+            CarPlayTile.draw(pos: pair.1, data: tires[pair.1] as? [String:Any],
+                              in: CGRect(x:rx, y:y, width:tW, height:tH))
+        }
+        drawBodyShape(type: "trailer6", in: CGRect(x:bx, y:r.midY - bH/2, width:bW, height:bH))
+    }
+
+    // MARK: - Vehicle body silhouette
+
+    private func drawBodyShape(type: String, in r: CGRect) {
+        let isCar = (type == "car")
         let topR: CGFloat = isCar ? r.width * 0.48 : r.width * 0.15
         let botR: CGFloat = isCar ? r.width * 0.43 : r.width * 0.15
+        let path = bodyPath(rect: r, topRadius: topR, bottomRadius: botR)
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
 
-        let path = roundedRectPath(rect: r, topRadius: topR, bottomRadius: botR)
+        // Gradient fill
+        let fc = [UIColor.white.withAlphaComponent(0.10).cgColor,
+                  UIColor.white.withAlphaComponent(0.03).cgColor] as CFArray
+        if let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                  colors: fc, locations: [0, 1]) {
+            ctx.saveGState()
+            ctx.addPath(path.cgPath); ctx.clip()
+            ctx.drawLinearGradient(grad,
+                                    start: CGPoint(x: r.midX, y: r.minY),
+                                    end:   CGPoint(x: r.midX, y: r.maxY),
+                                    options: [])
+            ctx.restoreGState()
+        }
 
-        // White semi-transparent fill (matches phone gradient)
-        let ctx = UIGraphicsGetCurrentContext()!
-        ctx.saveGState()
-
-        let colors = [UIColor.white.withAlphaComponent(0.10).cgColor,
-                      UIColor.white.withAlphaComponent(0.03).cgColor] as CFArray
-        let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                   colors: colors,
-                                   locations: [0, 1])!
-        ctx.addPath(path.cgPath)
-        ctx.clip()
-        ctx.drawLinearGradient(gradient,
-                                start: CGPoint(x: r.midX, y: r.minY),
-                                end:   CGPoint(x: r.midX, y: r.maxY),
-                                options: [])
-        ctx.restoreGState()
-
-        // Border
+        // Outline
         UIColor.white.withAlphaComponent(0.15).setStroke()
-        path.lineWidth = 1.0
-        path.stroke()
+        path.lineWidth = 1.0; path.stroke()
 
         if isCar {
-            // Windshield
             let wH = r.height * 0.21
             let wPath = UIBezierPath(roundedRect: CGRect(
-                x: r.minX + r.width * 0.12, y: r.minY + r.height * 0.04,
+                x: r.minX + r.width * 0.12,
+                y: r.minY + r.height * 0.04,
                 width: r.width * 0.76, height: wH),
                 byRoundingCorners: [.topLeft, .topRight],
                 cornerRadii: CGSize(width: wH * 0.5, height: wH * 0.5))
-            let wColors = [AppColor.cyan.withAlphaComponent(0.14).cgColor,
-                           AppColor.cyan.withAlphaComponent(0.03).cgColor] as CFArray
-            let wGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                    colors: wColors, locations: [0, 1])!
-            ctx.saveGState()
-            ctx.addPath(wPath.cgPath)
-            ctx.clip()
-            ctx.drawLinearGradient(wGrad,
-                                    start: CGPoint(x: r.midX, y: r.minY + r.height * 0.04),
-                                    end:   CGPoint(x: r.midX, y: r.minY + r.height * 0.04 + wH),
-                                    options: [])
-            ctx.restoreGState()
+
+            let wc = [AppColor.cyan.withAlphaComponent(0.14).cgColor,
+                      AppColor.cyan.withAlphaComponent(0.03).cgColor] as CFArray
+            if let wg = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                    colors: wc, locations: [0, 1]) {
+                ctx.saveGState()
+                ctx.addPath(wPath.cgPath); ctx.clip()
+                ctx.drawLinearGradient(wg,
+                                        start: CGPoint(x: r.midX, y: r.minY + r.height * 0.04),
+                                        end:   CGPoint(x: r.midX, y: r.minY + r.height * 0.04 + wH),
+                                        options: [])
+                ctx.restoreGState()
+            }
             UIColor.white.withAlphaComponent(0.12).setStroke()
-            wPath.lineWidth = 0.75
-            wPath.stroke()
+            wPath.lineWidth = 0.75; wPath.stroke()
 
             // Roof
             let roofPath = UIBezierPath(roundedRect: CGRect(
-                x: r.minX + r.width * 0.13, y: r.minY + r.height * 0.30,
+                x: r.minX + r.width * 0.13,
+                y: r.minY + r.height * 0.30,
                 width: r.width * 0.74, height: r.height * 0.26),
                 cornerRadius: r.width * 0.10)
-            UIColor.white.withAlphaComponent(0.04).setFill()
-            roofPath.fill()
+            UIColor.white.withAlphaComponent(0.04).setFill(); roofPath.fill()
             UIColor.white.withAlphaComponent(0.10).setStroke()
-            roofPath.lineWidth = 0.75
-            roofPath.stroke()
+            roofPath.lineWidth = 0.75; roofPath.stroke()
         }
     }
 
-    private func roundedRectPath(rect r: CGRect,
-                                  topRadius tR: CGFloat,
-                                  bottomRadius bR: CGFloat) -> UIBezierPath {
+    private func bodyPath(rect r: CGRect, topRadius tR: CGFloat, bottomRadius bR: CGFloat) -> UIBezierPath {
         let p = UIBezierPath()
         p.move(to:    CGPoint(x: r.minX + tR, y: r.minY))
         p.addLine(to: CGPoint(x: r.maxX - tR, y: r.minY))
@@ -306,164 +314,122 @@ class CarPlayBodyView: UIView {
     }
 }
 
-// MARK: - CarPlayTile  (tile image renderer)
+// MARK: - CarPlayTile  (draws directly into the current Core Graphics context)
 
 enum CarPlayTile {
 
-    /// Renders a tile image sized exactly to `size` so it fills the grid cell.
-    static func render(pos: String, vehicleName: String,
-                       data: [String: Any]?, size: CGSize) -> UIImage {
-        let s = CGSize(width: max(60, size.width), height: max(60, size.height))
-        let renderer = UIGraphicsImageRenderer(size: s)
-        return renderer.image { _ in
-            draw(pos: pos, data: data, in: CGRect(origin: .zero, size: s))
-        }
-    }
-
-    private static func draw(pos: String, data: [String: Any]?, in rect: CGRect) {
+    static func draw(pos: String, data: [String: Any]?, in rect: CGRect) {
         let pressure  = data?["pressure"]        as? Double
-        let temp      = data?["temp"]            as? Int
+        let temp      = (data?["temp"] as? Int) ?? (data?["temp"] as? Double).map { Int($0) }
         let isLow     = data?["isLow"]           as? Bool ?? false
         let connected = data?["connected"]       as? Bool ?? false
         let pHist     = data?["pressureHistory"] as? [Double] ?? []
         let tHist     = data?["tempHistory"]     as? [Double] ?? []
 
         let accent = isLow ? AppColor.red : AppColor.cyan
-        let amber  = AppColor.amber
         let W = rect.width, H = rect.height
 
-        // ── Background ────────────────────────────────────────────────────────
+        // ── Background ─────────────────────────────────────────────────────────
         let cornerR = max(8, H * 0.06)
         UIColor(r: 10, g: 20, b: 32).setFill()
         UIBezierPath(roundedRect: rect, cornerRadius: cornerR).fill()
 
         accent.withAlphaComponent(0.28).setStroke()
         let border = UIBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerRadius: cornerR - 1)
-        border.lineWidth = 1.5
-        border.stroke()
+        border.lineWidth = 1.5; border.stroke()
 
-        // ── Position label ────────────────────────────────────────────────────
-        text(pos.uppercased(),
-             center: CGPoint(x: W / 2, y: H * 0.09),
-             font: .systemFont(ofSize: max(9, H * 0.065), weight: .medium),
-             color: UIColor(r: 130, g: 160, b: 178))
+        // ── Position label ─────────────────────────────────────────────────────
+        label(pos.uppercased(),
+              at: CGPoint(x: rect.minX + W/2, y: rect.minY + H * 0.09),
+              font: .systemFont(ofSize: max(9, H * 0.065), weight: .medium),
+              color: UIColor(r: 130, g: 160, b: 178))
 
-        // ── Tire circle ───────────────────────────────────────────────────────
-        let cr = min(W * 0.38, H * 0.32)   // radius proportional to smaller dimension
-        let cc = CGPoint(x: W / 2, y: H * 0.42)
-        let glowPad = cr * 0.11
+        // ── Tire circle ────────────────────────────────────────────────────────
+        let cr  = min(W * 0.38, H * 0.32)
+        let cc  = CGPoint(x: rect.minX + W/2, y: rect.minY + H * 0.42)
+        let gPd = cr * 0.11
 
-        // Soft glow
         accent.withAlphaComponent(0.08).setFill()
-        UIBezierPath(ovalIn: CGRect(x: cc.x - cr - glowPad, y: cc.y - cr - glowPad,
-                                     width: (cr + glowPad) * 2,
-                                     height: (cr + glowPad) * 2)).fill()
-        // Fill
+        UIBezierPath(ovalIn: CGRect(x: cc.x - cr - gPd, y: cc.y - cr - gPd,
+                                     width: (cr+gPd)*2, height: (cr+gPd)*2)).fill()
         UIColor(r: 8, g: 17, b: 28).setFill()
-        UIBezierPath(ovalIn: CGRect(x: cc.x - cr, y: cc.y - cr,
-                                     width: cr * 2, height: cr * 2)).fill()
-        // Ring
+        UIBezierPath(ovalIn: CGRect(x: cc.x - cr, y: cc.y - cr, width: cr*2, height: cr*2)).fill()
         accent.setStroke()
-        let ring = UIBezierPath(ovalIn: CGRect(x: cc.x - cr, y: cc.y - cr,
-                                                width: cr * 2, height: cr * 2))
-        ring.lineWidth = max(1.5, cr * 0.046)
-        ring.stroke()
+        let ring = UIBezierPath(ovalIn: CGRect(x: cc.x - cr, y: cc.y - cr, width: cr*2, height: cr*2))
+        ring.lineWidth = max(1.5, cr * 0.046); ring.stroke()
 
-        // ── Values inside circle ──────────────────────────────────────────────
+        // ── Values ─────────────────────────────────────────────────────────────
         if connected, let p = pressure {
-            let pStr = isLow
-                ? String(format: "⚠ %.1f", p)
-                : String(format: "%.2f", p)
-            text(pStr,
-                 center: CGPoint(x: cc.x, y: cc.y - cr * 0.13),
-                 font: .monospacedDigitSystemFont(ofSize: max(10, cr * 0.30), weight: .bold),
-                 color: accent)
-            text("bar",
-                 center: CGPoint(x: cc.x, y: cc.y + cr * 0.28),
-                 font: .systemFont(ofSize: max(7, cr * 0.16), weight: .medium),
-                 color: accent.withAlphaComponent(0.65))
+            let pStr = isLow ? String(format: "⚠ %.1f", p) : String(format: "%.2f", p)
+            label(pStr,
+                  at: CGPoint(x: cc.x, y: cc.y - cr * 0.13),
+                  font: .monospacedDigitSystemFont(ofSize: max(10, cr * 0.30), weight: .bold),
+                  color: accent)
+            label("bar",
+                  at: CGPoint(x: cc.x, y: cc.y + cr * 0.28),
+                  font: .systemFont(ofSize: max(7, cr * 0.16), weight: .medium),
+                  color: accent.withAlphaComponent(0.65))
         } else {
-            text("—",
-                 center: cc,
-                 font: .systemFont(ofSize: max(14, cr * 0.38), weight: .medium),
-                 color: UIColor(r: 82, g: 96, b: 111))
+            label("—", at: cc,
+                  font: .systemFont(ofSize: max(14, cr * 0.38), weight: .medium),
+                  color: UIColor(r: 82, g: 96, b: 111))
         }
 
-        // ── Temperature ───────────────────────────────────────────────────────
+        // ── Temperature ────────────────────────────────────────────────────────
         if connected, let t = temp {
-            text("\(t)°C",
-                 center: CGPoint(x: W / 2, y: H * 0.79),
-                 font: .systemFont(ofSize: max(8, H * 0.055), weight: .medium),
-                 color: amber)
+            label("\(t)°C",
+                  at: CGPoint(x: rect.minX + W/2, y: rect.minY + H * 0.79),
+                  font: .systemFont(ofSize: max(8, H * 0.055), weight: .medium),
+                  color: AppColor.amber)
         }
 
-        // ── Sparklines ────────────────────────────────────────────────────────
-        let sX  = W * 0.07
-        let sW  = W * 0.86
-        let sH  = max(6, H * 0.055)
-        sparkline(pHist, in: CGRect(x: sX, y: H * 0.855, width: sW, height: sH), color: accent)
-        sparkline(tHist, in: CGRect(x: sX, y: H * 0.920, width: sW, height: sH), color: amber)
+        // ── Sparklines ─────────────────────────────────────────────────────────
+        let sX = rect.minX + W * 0.07
+        let sW = W * 0.86
+        let sH = max(6, H * 0.055)
+        sparkline(pHist, in: CGRect(x: sX, y: rect.minY + H * 0.855, width: sW, height: sH), color: accent)
+        sparkline(tHist, in: CGRect(x: sX, y: rect.minY + H * 0.920, width: sW, height: sH), color: AppColor.amber)
     }
 
-    // ── Sparkline ─────────────────────────────────────────────────────────────
-
-    private static func sparkline(_ data: [Double], in rect: CGRect, color: UIColor) {
+    private static func sparkline(_ data: [Double], in r: CGRect, color: UIColor) {
         guard data.count >= 2 else {
             let flat = UIBezierPath()
-            flat.move(to:    CGPoint(x: rect.minX, y: rect.midY))
-            flat.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            flat.move(to: CGPoint(x: r.minX, y: r.midY))
+            flat.addLine(to: CGPoint(x: r.maxX, y: r.midY))
             flat.lineWidth = 1
-            color.withAlphaComponent(0.18).setStroke()
-            flat.stroke()
+            color.withAlphaComponent(0.18).setStroke(); flat.stroke()
             return
         }
 
-        let minV = data.min()!, maxV = data.max()!
-        let range = maxV - minV
-
-        func px(_ i: Int) -> CGFloat {
-            rect.minX + CGFloat(i) / CGFloat(data.count - 1) * rect.width
-        }
+        let minV = data.min()!, maxV = data.max()!, range = maxV - minV
+        func px(_ i: Int) -> CGFloat { r.minX + CGFloat(i) / CGFloat(data.count - 1) * r.width }
         func py(_ v: Double) -> CGFloat {
-            guard range > 0.001 else { return rect.midY }
-            return rect.maxY - CGFloat((v - minV) / range) * rect.height
+            guard range > 0.001 else { return r.midY }
+            return r.maxY - CGFloat((v - minV) / range) * r.height
         }
 
-        // Fill
         let fill = UIBezierPath()
         fill.move(to: CGPoint(x: px(0), y: py(data[0])))
         for i in 1..<data.count { fill.addLine(to: CGPoint(x: px(i), y: py(data[i]))) }
-        fill.addLine(to: CGPoint(x: px(data.count - 1), y: rect.maxY))
-        fill.addLine(to: CGPoint(x: px(0), y: rect.maxY))
-        fill.close()
-        color.withAlphaComponent(0.14).setFill()
-        fill.fill()
+        fill.addLine(to: CGPoint(x: px(data.count-1), y: r.maxY))
+        fill.addLine(to: CGPoint(x: px(0), y: r.maxY)); fill.close()
+        color.withAlphaComponent(0.14).setFill(); fill.fill()
 
-        // Line
         let line = UIBezierPath()
         line.move(to: CGPoint(x: px(0), y: py(data[0])))
         for i in 1..<data.count { line.addLine(to: CGPoint(x: px(i), y: py(data[i]))) }
-        line.lineWidth = 2.0
-        line.lineCapStyle  = .round
-        line.lineJoinStyle = .round
-        color.setStroke()
-        line.stroke()
+        line.lineWidth = 2.0; line.lineCapStyle = .round; line.lineJoinStyle = .round
+        color.setStroke(); line.stroke()
 
-        // Endpoint dot
-        let dot = UIBezierPath(ovalIn: CGRect(x: px(data.count - 1) - 2.5,
-                                               y: py(data.last!) - 2.5,
-                                               width: 5, height: 5))
+        let last = data.count - 1
         color.setFill()
-        dot.fill()
+        UIBezierPath(ovalIn: CGRect(x: px(last) - 2.5, y: py(data[last]) - 2.5, width: 5, height: 5)).fill()
     }
 
-    // ── Text helper ───────────────────────────────────────────────────────────
-
-    private static func text(_ str: String, center p: CGPoint,
-                               font: UIFont, color: UIColor) {
+    private static func label(_ str: String, at center: CGPoint, font: UIFont, color: UIColor) {
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let sz = str.size(withAttributes: attrs)
-        str.draw(at: CGPoint(x: p.x - sz.width / 2, y: p.y - sz.height / 2),
+        str.draw(at: CGPoint(x: center.x - sz.width/2, y: center.y - sz.height/2),
                  withAttributes: attrs)
     }
 }
