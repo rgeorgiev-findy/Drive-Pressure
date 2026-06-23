@@ -45,7 +45,7 @@ workflows:
       - name: Build iOS (no codesign)
         script: |
           set -eo pipefail
-          flutter build ios --release --no-codesign 2>&1
+          flutter build ios --release --no-codesign --verbose 2>&1 | tail -300
       - name: Build signed IPA
         script: |
           set -eo pipefail
