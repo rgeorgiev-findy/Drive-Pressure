@@ -44,26 +44,14 @@ workflows:
         script: xcode-project use-profiles
       - name: Build iOS (no codesign)
         script: |
-          set -e
-          flutter build ios --release --no-codesign --verbose 2>&1 | tail -100
+          set -eo pipefail
+          flutter build ios --release --no-codesign
       - name: Build signed IPA
         script: |
-          set -e
-          echo "=== Signing identities (all keychains) ==="
-          security find-identity -v -p codesigning || true
-          echo "=== Provisioning profiles ==="
-          ls ~/Library/MobileDevice/Provisioning\ Profiles/ | head -10 || true
-          echo "=== Entitlements file ==="
-          cat ios/Runner/Runner.entitlements || true
-          echo "=== Build settings after use-profiles ==="
-          xcodebuild -workspace "ios/Runner.xcworkspace" -scheme "Runner" \
-            -configuration Release \
-            -showBuildSettings 2>&1 | grep -iE "CODE_SIGN|DEVELOPMENT_TEAM|PROVISIONING|ENTITLEMENT" || true
-          echo "=== Building IPA ==="
+          set -eo pipefail
           xcode-project build-ipa \
             --workspace "ios/Runner.xcworkspace" \
-            --scheme "Runner" \
-            --verbose
+            --scheme "Runner"
       - name: Upload to TestFlight
         script: |
           IPA=$(find build/ios/ipa -name "*.ipa" | head -1)
