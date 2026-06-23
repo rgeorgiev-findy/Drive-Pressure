@@ -11,6 +11,9 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private var bgView: CarPlayBodyView?
     private var vehicles: [[String: Any]] = []
 
+    // Real CarPlay screen dimensions — set on connect, used for proportional tile sizing
+    private var windowBounds: CGRect = CGRect(x: 0, y: 0, width: 800, height: 480)
+
     // MARK: - CPTemplateApplicationSceneDelegate
 
     func templateApplicationScene(
@@ -19,11 +22,14 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     ) {
         carPlaySceneDelegate = self
         self.interfaceController = interfaceController
+        windowBounds = scene.carPlayWindow.bounds.isEmpty
+            ? CGRect(x: 0, y: 0, width: 800, height: 480)
+            : scene.carPlayWindow.bounds
 
         // Dark background + vehicle body shape behind the grid template
         let vc = UIViewController()
         vc.view.backgroundColor = UIColor(r: 8, g: 17, b: 28)
-        let bv = CarPlayBodyView(frame: scene.carPlayWindow.bounds)
+        let bv = CarPlayBodyView(frame: windowBounds)
         bv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         vc.view.addSubview(bv)
         bgView = bv
@@ -79,25 +85,36 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     }
 
     private func makeButtons() -> [CPGridButton] {
-        var buttons: [CPGridButton] = []
+        // Collect all items first so we can compute a uniform tile size
+        var items: [(pos: String, name: String, data: [String: Any]?)] = []
         for vehicle in vehicles {
             guard let type = vehicle["type"] as? String,
                   let tires = vehicle["tires"] as? [String: Any] else { continue }
             let name = vehicle["name"] as? String ?? ""
             for pos in positions(type) {
-                let td = tires[pos] as? [String: Any]
-                let img = CarPlayTile.render(pos: pos, vehicleName: name, data: td)
-                let pressure = td?["pressure"] as? Double
-                let title = pressure.map { "\(pos.uppercased()) · \(String(format: "%.2f", $0)) bar" }
-                           ?? pos.uppercased()
-                buttons.append(CPGridButton(
-                    titleVariants: [title, pos.uppercased()],
-                    image: img,
-                    handler: { _ in }
-                ))
+                items.append((pos, name, tires[pos] as? [String: Any]))
             }
         }
-        return buttons
+        let tileSize = computeTileSize(count: items.count)
+        return items.map { item in
+            let img = CarPlayTile.render(pos: item.pos, vehicleName: item.name,
+                                         data: item.data, size: tileSize)
+            let pressure = item.data?["pressure"] as? Double
+            let title = pressure.map {
+                "\(item.pos.uppercased()) · \(String(format: "%.2f", $0)) bar"
+            } ?? item.pos.uppercased()
+            return CPGridButton(titleVariants: [title, item.pos.uppercased()],
+                                image: img, handler: { _ in })
+        }
+    }
+
+    private func computeTileSize(count: Int) -> CGSize {
+        let cols: CGFloat = 2
+        let rows = CGFloat(max(1, (count + 1) / 2))
+        let navBarH: CGFloat = 44
+        let tileW = windowBounds.width / cols
+        let tileH = (windowBounds.height - navBarH) / rows
+        return CGSize(width: tileW, height: tileH)
     }
 
     private func positions(_ type: String) -> [String] {
@@ -293,11 +310,13 @@ class CarPlayBodyView: UIView {
 
 enum CarPlayTile {
 
-    static func render(pos: String, vehicleName: String, data: [String: Any]?) -> UIImage {
-        let size = CGSize(width: 200, height: 200)
-        let renderer = UIGraphicsImageRenderer(size: size)
+    /// Renders a tile image sized exactly to `size` so it fills the grid cell.
+    static func render(pos: String, vehicleName: String,
+                       data: [String: Any]?, size: CGSize) -> UIImage {
+        let s = CGSize(width: max(60, size.width), height: max(60, size.height))
+        let renderer = UIGraphicsImageRenderer(size: s)
         return renderer.image { _ in
-            draw(pos: pos, data: data, in: CGRect(origin: .zero, size: size))
+            draw(pos: pos, data: data, in: CGRect(origin: .zero, size: s))
         }
     }
 
@@ -311,41 +330,43 @@ enum CarPlayTile {
 
         let accent = isLow ? AppColor.red : AppColor.cyan
         let amber  = AppColor.amber
+        let W = rect.width, H = rect.height
 
         // ── Background ────────────────────────────────────────────────────────
+        let cornerR = max(8, H * 0.06)
         UIColor(r: 10, g: 20, b: 32).setFill()
-        UIBezierPath(roundedRect: rect, cornerRadius: 14).fill()
+        UIBezierPath(roundedRect: rect, cornerRadius: cornerR).fill()
 
-        // Border
         accent.withAlphaComponent(0.28).setStroke()
-        let border = UIBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerRadius: 13)
+        let border = UIBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerRadius: cornerR - 1)
         border.lineWidth = 1.5
         border.stroke()
 
         // ── Position label ────────────────────────────────────────────────────
         text(pos.uppercased(),
-             center: CGPoint(x: 100, y: 20),
-             font: .systemFont(ofSize: 12, weight: .medium),
+             center: CGPoint(x: W / 2, y: H * 0.09),
+             font: .systemFont(ofSize: max(9, H * 0.065), weight: .medium),
              color: UIColor(r: 130, g: 160, b: 178))
 
         // ── Tire circle ───────────────────────────────────────────────────────
-        let cc = CGPoint(x: 100, y: 90), cr: CGFloat = 54
+        let cr = min(W * 0.38, H * 0.32)   // radius proportional to smaller dimension
+        let cc = CGPoint(x: W / 2, y: H * 0.42)
+        let glowPad = cr * 0.11
 
         // Soft glow
         accent.withAlphaComponent(0.08).setFill()
-        UIBezierPath(ovalIn: CGRect(x: cc.x - cr - 6, y: cc.y - cr - 6,
-                                     width: (cr + 6) * 2, height: (cr + 6) * 2)).fill()
-
+        UIBezierPath(ovalIn: CGRect(x: cc.x - cr - glowPad, y: cc.y - cr - glowPad,
+                                     width: (cr + glowPad) * 2,
+                                     height: (cr + glowPad) * 2)).fill()
         // Fill
         UIColor(r: 8, g: 17, b: 28).setFill()
         UIBezierPath(ovalIn: CGRect(x: cc.x - cr, y: cc.y - cr,
                                      width: cr * 2, height: cr * 2)).fill()
-
         // Ring
         accent.setStroke()
         let ring = UIBezierPath(ovalIn: CGRect(x: cc.x - cr, y: cc.y - cr,
                                                 width: cr * 2, height: cr * 2))
-        ring.lineWidth = 2.5
+        ring.lineWidth = max(1.5, cr * 0.046)
         ring.stroke()
 
         // ── Values inside circle ──────────────────────────────────────────────
@@ -354,32 +375,34 @@ enum CarPlayTile {
                 ? String(format: "⚠ %.1f", p)
                 : String(format: "%.2f", p)
             text(pStr,
-                 center: CGPoint(x: 100, y: 82),
-                 font: .monospacedDigitSystemFont(ofSize: 16, weight: .bold),
+                 center: CGPoint(x: cc.x, y: cc.y - cr * 0.13),
+                 font: .monospacedDigitSystemFont(ofSize: max(10, cr * 0.30), weight: .bold),
                  color: accent)
             text("bar",
-                 center: CGPoint(x: 100, y: 103),
-                 font: .systemFont(ofSize: 9, weight: .medium),
+                 center: CGPoint(x: cc.x, y: cc.y + cr * 0.28),
+                 font: .systemFont(ofSize: max(7, cr * 0.16), weight: .medium),
                  color: accent.withAlphaComponent(0.65))
         } else {
             text("—",
-                 center: CGPoint(x: 100, y: 90),
-                 font: .systemFont(ofSize: 20, weight: .medium),
+                 center: cc,
+                 font: .systemFont(ofSize: max(14, cr * 0.38), weight: .medium),
                  color: UIColor(r: 82, g: 96, b: 111))
         }
 
         // ── Temperature ───────────────────────────────────────────────────────
         if connected, let t = temp {
             text("\(t)°C",
-                 center: CGPoint(x: 100, y: 156),
-                 font: .systemFont(ofSize: 11, weight: .medium),
+                 center: CGPoint(x: W / 2, y: H * 0.79),
+                 font: .systemFont(ofSize: max(8, H * 0.055), weight: .medium),
                  color: amber)
         }
 
         // ── Sparklines ────────────────────────────────────────────────────────
-        let sW: CGFloat = 168, sX: CGFloat = 16
-        sparkline(pHist, in: CGRect(x: sX, y: 168, width: sW, height: 12), color: accent)
-        sparkline(tHist, in: CGRect(x: sX, y: 183, width: sW, height: 12), color: amber)
+        let sX  = W * 0.07
+        let sW  = W * 0.86
+        let sH  = max(6, H * 0.055)
+        sparkline(pHist, in: CGRect(x: sX, y: H * 0.855, width: sW, height: sH), color: accent)
+        sparkline(tHist, in: CGRect(x: sX, y: H * 0.920, width: sW, height: sH), color: amber)
     }
 
     // ── Sparkline ─────────────────────────────────────────────────────────────
