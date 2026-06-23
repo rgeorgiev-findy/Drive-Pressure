@@ -111,9 +111,9 @@ class CarPlayService {
     final isLow = packet != null &&
         packet.pressureBar < LimitsService.instance.minPressureBar;
 
-    // Generate sparklines (cyan = pressure, orange = temp)
-    final pChart = await _sparkline(pos, 'pressure', const ui.Color(0xFF00D4FF), 120, 44);
-    final tChart = await _sparkline(pos, 'temp', const ui.Color(0xFFFF8C00), 80, 44);
+    // Generate sparklines — colours match the phone app theme
+    final pChart = await _sparkline(pos, 'pressure', const ui.Color(0xFF34E3FF), 120, 44);
+    final tChart = await _sparkline(pos, 'temp', const ui.Color(0xFFFFB02E), 80, 44);
 
     if (packet == null) {
       return CPListItem(
@@ -172,13 +172,13 @@ class CarPlayService {
       final recorder = ui.PictureRecorder();
       final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, w, h));
 
-      // Dark rounded background
+      // Background matches AppColors.bg (#08111C)
       canvas.drawRRect(
         ui.RRect.fromRectAndRadius(
           ui.Rect.fromLTWH(0, 0, w, h),
           const ui.Radius.circular(6),
         ),
-        ui.Paint()..color = const ui.Color(0xFF0D1B2A),
+        ui.Paint()..color = const ui.Color(0xFF08111C),
       );
 
       final minV = data.reduce(math.min);
