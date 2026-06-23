@@ -23,7 +23,9 @@ workflows:
       - name: Set up provisioning profiles
         script: xcode-project use-profiles
       - name: Build iOS (no codesign)
-        script: flutter build ios --release --no-codesign
+        script: |
+          set -e
+          flutter build ios --release --no-codesign --verbose 2>&1 | tail -100
       - name: Build signed IPA
         script: xcode-project build-ipa --workspace "ios/Runner.xcworkspace" --scheme "Runner"
       - name: Upload to TestFlight
