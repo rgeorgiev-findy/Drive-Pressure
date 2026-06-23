@@ -147,14 +147,42 @@ class CarPlayBodyView: UIView {
         let type = vehicle["type"] as? String ?? "car"
         let name = vehicle["name"] as? String ?? ""
 
-        // Scale the phone layout (340×392) to fit the available rect
-        let phW: CGFloat = 340, phH: CGFloat = 392
+        // Phone layout dimensions per vehicle type (from vehicle_screen.dart)
+        // (layoutW × layoutH, bodyW × bodyH)
+        let phW: CGFloat, phH: CGFloat   // phone total layout size
+        let bW: CGFloat,  bH: CGFloat    // phone body size
+        let isTrailer: Bool
+        let isCar: Bool
+
+        switch type {
+        case "car":
+            // SizedBox(width:340, height:392), body 120×272
+            phW = 340; phH = 392; bW = 120; bH = 272
+            isTrailer = false; isCar = true
+        case "trailer2":
+            // Row layout: TireSlot(96) + gap(10) + body(100) + gap(10) + TireSlot(96)
+            // Total ≈ 312×107. We treat the body as a HORIZONTAL box.
+            phW = 312; phH = 107; bW = 100; bH = 107
+            isTrailer = true; isCar = false
+        case "trailer4":
+            // SizedBox(width:340, height:300), body 120×200
+            phW = 340; phH = 300; bW = 120; bH = 200
+            isTrailer = true; isCar = false
+        case "trailer6":
+            // SizedBox(width:340, height:460), body 120×370
+            phW = 340; phH = 460; bW = 120; bH = 370
+            isTrailer = true; isCar = false
+        default:
+            phW = 340; phH = 392; bW = 120; bH = 272
+            isTrailer = false; isCar = true
+        }
+
         let scale = min(rect.width / phW, rect.height / phH) * 0.90
         let lW = phW * scale, lH = phH * scale
         let ox = rect.minX + (rect.width  - lW) / 2
         let oy = rect.minY + (rect.height - lH) / 2
 
-        // Vehicle name
+        // Vehicle name label
         let nameAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 10, weight: .medium),
             .foregroundColor: UIColor(r: 130, g: 160, b: 178),
@@ -165,33 +193,18 @@ class CarPlayBodyView: UIView {
         nameStr.draw(at: CGPoint(x: rect.midX - nSize.width / 2,
                                   y: oy - 20), withAttributes: nameAttrs)
 
-        switch type {
-        case "car", "trailer4":
-            // Body: 120×272 centered in 340×392
-            let bW = 120 * scale, bH = 272 * scale
-            let bX = ox + (lW - bW) / 2, bY = oy + (lH - bH) / 2
-            drawCarBody(in: CGRect(x: bX, y: bY, width: bW, height: bH), isTrailer: false)
+        let scaledBodyW = bW * scale
+        let scaledBodyH = bH * scale
+        let bodyX = ox + (lW - scaledBodyW) / 2
+        let bodyY = oy + (lH - scaledBodyH) / 2
 
-        case "trailer2":
-            let bW = 100 * scale, bH = 72 * scale
-            drawCarBody(in: CGRect(x: ox + (lW - bW) / 2, y: oy + (lH - bH) / 2,
-                                    width: bW, height: bH), isTrailer: true)
-
-        case "trailer6":
-            let bW = 120 * scale, bH = 330 * scale
-            drawCarBody(in: CGRect(x: ox + (lW - bW) / 2, y: oy + (lH - bH) / 2,
-                                    width: bW, height: bH), isTrailer: true)
-
-        default:
-            let bW = 120 * scale, bH = 272 * scale
-            drawCarBody(in: CGRect(x: ox + (lW - bW) / 2, y: oy + (lH - bH) / 2,
-                                    width: bW, height: bH), isTrailer: false)
-        }
+        drawCarBody(in: CGRect(x: bodyX, y: bodyY, width: scaledBodyW, height: scaledBodyH),
+                    isTrailer: isTrailer, isCar: isCar)
     }
 
-    private func drawCarBody(in r: CGRect, isTrailer: Bool) {
-        let topR: CGFloat = isTrailer ? r.width * 0.15 : r.width * 0.48
-        let botR: CGFloat = isTrailer ? r.width * 0.15 : r.width * 0.43
+    private func drawCarBody(in r: CGRect, isTrailer: Bool, isCar: Bool = false) {
+        let topR: CGFloat = isCar ? r.width * 0.48 : r.width * 0.15
+        let botR: CGFloat = isCar ? r.width * 0.43 : r.width * 0.15
 
         let path = roundedRectPath(rect: r, topRadius: topR, bottomRadius: botR)
 
@@ -217,7 +230,7 @@ class CarPlayBodyView: UIView {
         path.lineWidth = 1.0
         path.stroke()
 
-        if !isTrailer {
+        if isCar {
             // Windshield
             let wH = r.height * 0.21
             let wPath = UIBezierPath(roundedRect: CGRect(
