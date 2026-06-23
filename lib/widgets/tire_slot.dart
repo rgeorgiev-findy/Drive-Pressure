@@ -1,24 +1,22 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
-import 'gauge_ring.dart';
 
 enum TireState { ok, alert, add }
 
-/// A wheel tile on the vehicle screen.
 class TireSlot extends StatelessWidget {
   final TireState state;
   final String value;
   final String label;
-  final double fraction;
   final VoidCallback? onTap;
   const TireSlot({
     super.key,
     required this.state,
     this.value = '',
     required this.label,
-    this.fraction = 0.9,
     this.onTap,
+    // kept for call-site compatibility, no longer used
+    double fraction = 0.9,
   });
 
   @override
@@ -58,20 +56,29 @@ class TireSlot extends StatelessWidget {
                 height: 62,
                 child: CustomPaint(
                   painter: _DashedCircle(AppColors.cyan.withOpacity(0.6)),
-                  child: const Center(child: Icon(Icons.add, color: AppColors.cyan, size: 26)),
+                  child: const Center(
+                      child: Icon(Icons.add, color: AppColors.cyan, size: 26)),
                 ),
               )
             else
-              GaugeRing(
-                size: 62,
-                stroke: 6,
-                fraction: fraction,
-                color: accent,
+              Container(
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: accent.withOpacity(0.07),
+                  border: Border.all(color: accent.withOpacity(0.25)),
+                ),
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(value, style: AppText.chakra(size: 16, color: isAlert ? AppColors.redText : AppColors.text)),
-                    Text('BAR', style: AppText.mono(size: 7, color: AppColors.dimmer)),
+                    Text(value,
+                        style: AppText.chakra(
+                            size: 16,
+                            color: isAlert ? AppColors.redText : AppColors.text)),
+                    Text('BAR',
+                        style: AppText.mono(size: 7, color: AppColors.dimmer)),
                   ],
                 ),
               ),

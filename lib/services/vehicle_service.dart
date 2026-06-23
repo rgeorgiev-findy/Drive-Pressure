@@ -4,7 +4,7 @@ import '../models/tire_sensor.dart';
 
 // ── Enums & Model ─────────────────────────────────────────────────────────────
 
-enum VehicleType { car, trailer2, trailer4 }
+enum VehicleType { car, trailer2, trailer4, trailer6 }
 
 extension VehicleTypeX on VehicleType {
   String get label {
@@ -12,6 +12,7 @@ extension VehicleTypeX on VehicleType {
       case VehicleType.car:      return 'Car';
       case VehicleType.trailer2: return 'Trailer (2-wheel)';
       case VehicleType.trailer4: return 'Trailer (4-wheel)';
+      case VehicleType.trailer6: return 'Trailer (6-wheel)';
     }
   }
 
@@ -20,12 +21,15 @@ extension VehicleTypeX on VehicleType {
       case VehicleType.car:      return 'CAR';
       case VehicleType.trailer2: return 'TRAILER·2';
       case VehicleType.trailer4: return 'TRAILER·4';
+      case VehicleType.trailer6: return 'TRAILER·6';
     }
   }
 
-  bool get isTrailer => this == VehicleType.trailer2 || this == VehicleType.trailer4;
+  bool get isTrailer =>
+      this == VehicleType.trailer2 ||
+      this == VehicleType.trailer4 ||
+      this == VehicleType.trailer6;
 
-  /// Tire positions that belong to this vehicle type.
   List<TirePosition> get positions {
     switch (this) {
       case VehicleType.car:
@@ -34,6 +38,8 @@ extension VehicleTypeX on VehicleType {
         return [TirePosition.l, TirePosition.r];
       case VehicleType.trailer4:
         return [TirePosition.fl, TirePosition.fr, TirePosition.rl, TirePosition.rr];
+      case VehicleType.trailer6:
+        return [TirePosition.fl, TirePosition.fr, TirePosition.ml, TirePosition.mr, TirePosition.rl, TirePosition.rr];
     }
   }
 }

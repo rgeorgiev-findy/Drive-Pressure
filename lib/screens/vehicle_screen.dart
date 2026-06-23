@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/tire_sensor.dart';
 import '../services/ble_service.dart';
-import '../services/sensor_store.dart';
 import '../services/alerts_service.dart';
 import '../services/limits_service.dart';
 import '../services/vehicle_service.dart';
@@ -13,7 +12,7 @@ import '../widgets/tire_logo.dart';
 import '../widgets/tire_slot.dart';
 
 class VehicleScreen extends StatefulWidget {
-  final void Function(TirePosition, SensorPacket?) onOpenTire;
+  final void Function(TirePosition, SensorPacket?, {String? vehicleId}) onOpenTire;
   final void Function(TirePosition, {String? vehicleId}) onAddTire;
 
   const VehicleScreen({
@@ -27,10 +26,6 @@ class VehicleScreen extends StatefulWidget {
 }
 
 class _VehicleScreenState extends State<VehicleScreen> {
-  // Legacy SensorStore (kept for backward compat)
-  Map<TirePosition, String> _legacyMacs = {};
-
-  // VehicleService state
   Vehicle? _activeCar;
   Vehicle? _activeTrailer;
   Map<TirePosition, String> _carMacs = {};
@@ -38,7 +33,6 @@ class _VehicleScreenState extends State<VehicleScreen> {
 
   Map<String, SensorPacket> _readings = {};
   StreamSubscription<SensorPacket>? _bleSub;
-  StreamSubscription<void>? _storeSub;
   StreamSubscription<void>? _vehicleSub;
   StreamSubscription<void>? _alertSub;
 
@@ -46,7 +40,6 @@ class _VehicleScreenState extends State<VehicleScreen> {
   void initState() {
     super.initState();
     _reload();
-    _storeSub = SensorStore.instance.changes.listen((_) => _reload());
     _vehicleSub = VehicleService.instance.changes.listen((_) => _reload());
     _bleSub = BleService.instance.packets.listen(_onPacket);
     _alertSub = AlertsService.instance.changes.listen((_) {
@@ -58,24 +51,16 @@ class _VehicleScreenState extends State<VehicleScreen> {
     if (!mounted) return;
     final vs = VehicleService.instance;
     setState(() {
-      _legacyMacs = SensorStore.instance.pairedMacs;
       _activeCar = vs.activeCar;
       _activeTrailer = vs.activeTrailer;
-      _carMacs = _activeCar != null
-          ? vs.getPairedMacs(_activeCar!.id)
-          : {};
-      _trailerMacs = _activeTrailer != null
-          ? vs.getPairedMacs(_activeTrailer!.id)
-          : {};
+      _carMacs = _activeCar != null ? vs.getPairedMacs(_activeCar!.id) : {};
+      _trailerMacs =
+          _activeTrailer != null ? vs.getPairedMacs(_activeTrailer!.id) : {};
     });
   }
 
   void _onPacket(SensorPacket packet) {
-    final allMacs = {
-      ..._legacyMacs.values,
-      ..._carMacs.values,
-      ..._trailerMacs.values,
-    };
+    final allMacs = {..._carMacs.values, ..._trailerMacs.values};
     if (!allMacs.contains(packet.mac)) return;
     if (!mounted) return;
     setState(() => _readings[packet.mac] = packet);
@@ -84,7 +69,6 @@ class _VehicleScreenState extends State<VehicleScreen> {
   @override
   void dispose() {
     _bleSub?.cancel();
-    _storeSub?.cancel();
     _vehicleSub?.cancel();
     _alertSub?.cancel();
     super.dispose();
@@ -163,13 +147,13 @@ class _VehicleScreenState extends State<VehicleScreen> {
                   RichText(
                     text: TextSpan(children: [
                       TextSpan(
-                          text: 'Drive',
+                          text: 'Findy',
                           style: AppText.chakra(
                               size: 17,
                               color: AppColors.text,
                               spacing: -0.3)),
                       TextSpan(
-                          text: 'Pressure',
+                          text: 'TPMS',
                           style: AppText.chakra(
                               size: 17,
                               color: AppColors.cyan,
@@ -231,7 +215,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
             Expanded(
               child: _hasVehicleConfig
                   ? _vehicleLayout()
-                  : _legacyLayout(),
+                  : _emptyVehicleState(),
             ),
           ],
         ),
@@ -239,41 +223,22 @@ class _VehicleScreenState extends State<VehicleScreen> {
     );
   }
 
-  // ── Legacy layout (original 4-car design, uses SensorStore) ──────────────
+  // ── Empty state ───────────────────────────────────────────────────────────
 
-  Widget _legacyLayout() {
+  Widget _emptyVehicleState() {
     return Center(
-      child: SizedBox(
-        width: 340,
-        height: 392,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            _carBody(),
-            Positioned(
-              top: 0,
-              child: Text('FRONT',
-                  style: AppText.mono(
-                      size: 9, color: AppColors.muted, spacing: 3)),
-            ),
-            Positioned(
-                left: 0,
-                top: 50,
-                child: _slotLegacy(TirePosition.fl)),
-            Positioned(
-                right: 0,
-                top: 50,
-                child: _slotLegacy(TirePosition.fr)),
-            Positioned(
-                left: 0,
-                bottom: 50,
-                child: _slotLegacy(TirePosition.rl)),
-            Positioned(
-                right: 0,
-                bottom: 50,
-                child: _slotLegacy(TirePosition.rr)),
-          ],
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.directions_car_outlined,
+              size: 56, color: AppColors.dimmer.withOpacity(0.4)),
+          const SizedBox(height: 16),
+          Text('No vehicle selected',
+              style: AppText.chakra(size: 16, color: AppColors.dimmer)),
+          const SizedBox(height: 8),
+          Text('Add a vehicle in Settings',
+              style: AppText.mono(size: 12, color: AppColors.muted)),
+        ],
       ),
     );
   }
@@ -407,60 +372,63 @@ class _VehicleScreenState extends State<VehicleScreen> {
   // ── Trailer drawing ───────────────────────────────────────────────────────
 
   Widget _trailerLayout(Vehicle vehicle, Map<TirePosition, String> macs) {
-    final is2wheel = vehicle.type == VehicleType.trailer2;
-
-    if (is2wheel) {
-      return SizedBox(
-        width: 340,
-        height: 180,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Trailer body
-            Container(
-              width: 160,
-              height: 100,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.white.withOpacity(0.08),
-                    Colors.white.withOpacity(0.02)
-                  ],
-                ),
-                border:
-                    Border.all(color: Colors.white.withOpacity(0.15)),
-              ),
-            ),
-            Positioned(
-              top: 0,
-              child: Text(vehicle.name,
-                  style: AppText.mono(
-                      size: 9, color: AppColors.muted, spacing: 3)),
-            ),
-            Positioned(
-                left: 0,
-                child: _slotVehicle(TirePosition.l, vehicle, macs,
-                    compact: true)),
-            Positioned(
-                right: 0,
-                child: _slotVehicle(TirePosition.r, vehicle, macs,
-                    compact: true)),
-          ],
-        ),
-      );
+    switch (vehicle.type) {
+      case VehicleType.trailer2:
+        return _trailer2Layout(vehicle, macs);
+      case VehicleType.trailer4:
+        return _trailer4Layout(vehicle, macs);
+      case VehicleType.trailer6:
+        return _trailer6Layout(vehicle, macs);
+      default:
+        return const SizedBox.shrink();
     }
+  }
 
-    // 4-wheel trailer
+  Widget _trailer2Layout(Vehicle vehicle, Map<TirePosition, String> macs) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(vehicle.name,
+            style: AppText.mono(size: 9, color: AppColors.muted, spacing: 3)),
+        const SizedBox(height: 12),
+        IntrinsicHeight(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _slotVehicle(TirePosition.l, vehicle, macs),
+              const SizedBox(width: 10),
+              Container(
+                width: 100,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withOpacity(0.08),
+                      Colors.white.withOpacity(0.02),
+                    ],
+                  ),
+                  border: Border.all(color: Colors.white.withOpacity(0.15)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              _slotVehicle(TirePosition.r, vehicle, macs),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _trailer4Layout(Vehicle vehicle, Map<TirePosition, String> macs) {
     return SizedBox(
       width: 340,
       height: 300,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Trailer body
           Container(
             width: 120,
             height: 200,
@@ -471,7 +439,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.white.withOpacity(0.08),
-                  Colors.white.withOpacity(0.02)
+                  Colors.white.withOpacity(0.02),
                 ],
               ),
               border: Border.all(color: Colors.white.withOpacity(0.15)),
@@ -480,25 +448,54 @@ class _VehicleScreenState extends State<VehicleScreen> {
           Positioned(
             top: 0,
             child: Text(vehicle.name,
-                style: AppText.mono(
-                    size: 9, color: AppColors.muted, spacing: 3)),
+                style: AppText.mono(size: 9, color: AppColors.muted, spacing: 3)),
+          ),
+          Positioned(left: 0, top: 20, child: _slotVehicle(TirePosition.fl, vehicle, macs)),
+          Positioned(right: 0, top: 20, child: _slotVehicle(TirePosition.fr, vehicle, macs)),
+          Positioned(left: 0, bottom: 20, child: _slotVehicle(TirePosition.rl, vehicle, macs)),
+          Positioned(right: 0, bottom: 20, child: _slotVehicle(TirePosition.rr, vehicle, macs)),
+        ],
+      ),
+    );
+  }
+
+  Widget _trailer6Layout(Vehicle vehicle, Map<TirePosition, String> macs) {
+    return SizedBox(
+      width: 340,
+      height: 460,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 120,
+            height: 370,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(22),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white.withOpacity(0.08),
+                  Colors.white.withOpacity(0.02),
+                ],
+              ),
+              border: Border.all(color: Colors.white.withOpacity(0.15)),
+            ),
           ),
           Positioned(
-              left: 0,
-              top: 20,
-              child: _slotVehicle(TirePosition.fl, vehicle, macs)),
-          Positioned(
-              right: 0,
-              top: 20,
-              child: _slotVehicle(TirePosition.fr, vehicle, macs)),
-          Positioned(
-              left: 0,
-              bottom: 20,
-              child: _slotVehicle(TirePosition.rl, vehicle, macs)),
-          Positioned(
-              right: 0,
-              bottom: 20,
-              child: _slotVehicle(TirePosition.rr, vehicle, macs)),
+            top: 0,
+            child: Text(vehicle.name,
+                style: AppText.mono(size: 9, color: AppColors.muted, spacing: 3)),
+          ),
+          // Front axle
+          Positioned(left: 0, top: 30, child: _slotVehicle(TirePosition.fl, vehicle, macs)),
+          Positioned(right: 0, top: 30, child: _slotVehicle(TirePosition.fr, vehicle, macs)),
+          // Middle axle (centered)
+          Positioned(left: 0, top: 175, child: _slotVehicle(TirePosition.ml, vehicle, macs)),
+          Positioned(right: 0, top: 175, child: _slotVehicle(TirePosition.mr, vehicle, macs)),
+          // Rear axle
+          Positioned(left: 0, bottom: 30, child: _slotVehicle(TirePosition.rl, vehicle, macs)),
+          Positioned(right: 0, bottom: 30, child: _slotVehicle(TirePosition.rr, vehicle, macs)),
         ],
       ),
     );
@@ -532,23 +529,6 @@ class _VehicleScreenState extends State<VehicleScreen> {
 
   // ── Tire slot builders ────────────────────────────────────────────────────
 
-  Widget _slotLegacy(TirePosition pos) {
-    final packet = _packetFor(pos, _legacyMacs);
-    final paired = _legacyMacs.containsKey(pos);
-
-    if (!paired) {
-      return TireSlot(
-        state: TireState.add,
-        label: '${pos.shortLabel} · ADD',
-        onTap: () => widget.onAddTire(pos),
-      );
-    }
-    return _buildSlotContent(pos, packet,
-        onAdd: () => widget.onAddTire(pos),
-        onOpen: () => widget.onOpenTire(pos, null),
-        onOpenWithPacket: (p) => widget.onOpenTire(pos, p));
-  }
-
   Widget _slotVehicle(
     TirePosition pos,
     Vehicle vehicle,
@@ -567,8 +547,8 @@ class _VehicleScreenState extends State<VehicleScreen> {
     }
     return _buildSlotContent(pos, packet,
         onAdd: () => widget.onAddTire(pos, vehicleId: vehicle.id),
-        onOpen: () => widget.onOpenTire(pos, null),
-        onOpenWithPacket: (p) => widget.onOpenTire(pos, p));
+        onOpen: () => widget.onOpenTire(pos, null, vehicleId: vehicle.id),
+        onOpenWithPacket: (p) => widget.onOpenTire(pos, p, vehicleId: vehicle.id));
   }
 
   Widget _buildSlotContent(

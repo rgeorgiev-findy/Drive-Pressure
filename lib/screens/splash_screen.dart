@@ -101,13 +101,13 @@ class _SplashScreenState extends State<SplashScreen>
                     child: RichText(
                       text: TextSpan(children: [
                         TextSpan(
-                            text: 'Drive',
+                            text: 'Findy',
                             style: AppText.chakra(
                                 size: 32,
                                 color: AppColors.text,
                                 spacing: -0.5)),
                         TextSpan(
-                            text: 'Pressure',
+                            text: 'TPMS',
                             style: AppText.chakra(
                                 size: 32,
                                 color: AppColors.cyan,

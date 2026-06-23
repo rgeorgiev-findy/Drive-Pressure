@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import '../models/tire_sensor.dart';
 import '../services/ble_service.dart';
 import '../services/sensor_store.dart';
+import '../services/vehicle_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
 import '../widgets/status_row.dart';
 import '../widgets/glass.dart';
-import '../widgets/gauge_ring.dart';
 import '../widgets/buttons.dart';
 import '../widgets/mini_trend.dart';
 import 'pair_ble_screen.dart';
@@ -17,11 +17,13 @@ import '../services/trend_service.dart';
 class TireDetailScreen extends StatefulWidget {
   final TirePosition position;
   final SensorPacket? sensor;
+  final String? vehicleId;
 
   const TireDetailScreen({
     super.key,
     required this.position,
     required this.sensor,
+    this.vehicleId,
   });
 
   @override
@@ -54,8 +56,10 @@ class _TireDetailScreenState extends State<TireDetailScreen> {
   }
 
   void _onPacket(SensorPacket packet) {
-    final targetMac = SensorStore.instance.pairedMacs[widget.position]
-        ?? widget.sensor?.mac;
+    final vid = widget.vehicleId;
+    final targetMac = vid != null
+        ? VehicleService.instance.getMac(vid, widget.position)
+        : SensorStore.instance.pairedMacs[widget.position] ?? widget.sensor?.mac;
     if (targetMac == null || packet.mac != targetMac) return;
     if (!mounted) return;
     setState(() {
@@ -80,7 +84,6 @@ class _TireDetailScreenState extends State<TireDetailScreen> {
 
     final pos = widget.position;
     final pressure = _current.pressureBar;
-    final fraction = (pressure / 3.5).clamp(0.0, 1.0);
     final gaugeColor = _isLow ? AppColors.red : AppColors.cyan;
     final sinceStr = _secondsSince(_current.timestamp);
 
@@ -147,14 +150,19 @@ class _TireDetailScreenState extends State<TireDetailScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(24, 6, 24, 24),
                   children: [
-                    // Big pressure gauge
+                    // Big pressure display
                     Center(
-                      child: GaugeRing(
-                        size: 164,
-                        stroke: 12,
-                        fraction: fraction,
-                        color: gaugeColor,
+                      child: Container(
+                        width: 164,
+                        height: 164,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: gaugeColor.withOpacity(0.07),
+                          border: Border.all(
+                              color: gaugeColor.withOpacity(0.25), width: 2),
+                        ),
                         child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(pressure.toStringAsFixed(1),
@@ -166,7 +174,9 @@ class _TireDetailScreenState extends State<TireDetailScreen> {
                                         : AppColors.text)),
                             Text('BAR',
                                 style: AppText.mono(
-                                    size: 10, color: AppColors.dimmer, spacing: 2)),
+                                    size: 10,
+                                    color: AppColors.dimmer,
+                                    spacing: 2)),
                           ],
                         ),
                       ),
@@ -374,7 +384,10 @@ class _TireDetailScreenState extends State<TireDetailScreen> {
 
   Widget _buildNoData(BuildContext context) {
     final pos = widget.position;
-    final mac = SensorStore.instance.pairedMacs[pos] ?? '—';
+    final vid = widget.vehicleId;
+    final mac = vid != null
+        ? VehicleService.instance.getMac(vid, pos) ?? '—'
+        : SensorStore.instance.pairedMacs[pos] ?? '—';
 
     return Scaffold(
       body: AppBackground(
@@ -461,7 +474,12 @@ class _TireDetailScreenState extends State<TireDetailScreen> {
           ),
           TextButton(
             onPressed: () async {
-              await SensorStore.instance.removeSensor(widget.position);
+              final vid = widget.vehicleId;
+              if (vid != null) {
+                await VehicleService.instance.unpairSensor(vid, widget.position);
+              } else {
+                await SensorStore.instance.removeSensor(widget.position);
+              }
               if (!mounted) return;
               Navigator.of(ctx).pop();
               Navigator.of(context).maybePop();

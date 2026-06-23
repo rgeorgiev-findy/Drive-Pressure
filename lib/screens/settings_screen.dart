@@ -306,8 +306,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       selectedType, AppColors.amber, (t) {
                     setDialogState(() => selectedType = t);
                   }),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   _typeChip('4 wheels', VehicleType.trailer4,
+                      selectedType, AppColors.amber, (t) {
+                    setDialogState(() => selectedType = t);
+                  }),
+                  const SizedBox(width: 8),
+                  _typeChip('6 wheels', VehicleType.trailer6,
                       selectedType, AppColors.amber, (t) {
                     setDialogState(() => selectedType = t);
                   }),

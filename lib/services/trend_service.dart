@@ -2,6 +2,7 @@ import 'dart:async';
 import '../models/tire_sensor.dart';
 import 'ble_service.dart';
 import 'sensor_store.dart';
+import 'vehicle_service.dart';
 
 /// Accumulates pressure and temperature readings per tire position.
 /// Runs independently of any screen — data builds up as long as the app is alive.
@@ -12,13 +13,11 @@ class TrendService {
   final Map<TirePosition, List<double>> pressure = {};
   final Map<TirePosition, List<double>> temp = {};
 
-  // Emits the position every time a new data point is added
   final _ctrl = StreamController<TirePosition>.broadcast();
   Stream<TirePosition> get updates => _ctrl.stream;
 
   void init() {
     BleService.instance.packets.listen(_onPacket);
-    SensorStore.instance.changes.listen((_) => _pruneUnpaired());
   }
 
   void _onPacket(SensorPacket packet) {
@@ -29,15 +28,18 @@ class TrendService {
     _ctrl.add(pos);
   }
 
-  void _pruneUnpaired() {
-    final paired = SensorStore.instance.pairedMacs;
-    pressure.removeWhere((pos, _) => !paired.containsKey(pos));
-    temp.removeWhere((pos, _) => !paired.containsKey(pos));
-  }
-
   TirePosition? _positionOf(String mac) {
+    // Check legacy SensorStore
     for (final e in SensorStore.instance.pairedMacs.entries) {
       if (e.value == mac) return e.key;
+    }
+    // Check active car and trailer in VehicleService
+    final vs = VehicleService.instance;
+    for (final vehicle in [vs.activeCar, vs.activeTrailer]) {
+      if (vehicle == null) continue;
+      for (final e in vs.getPairedMacs(vehicle.id).entries) {
+        if (e.value == mac) return e.key;
+      }
     }
     return null;
   }

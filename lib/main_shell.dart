@@ -49,9 +49,10 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final pages = [
       VehicleScreen(
-        onOpenTire: (pos, packet) => Navigator.of(context).push(
+        onOpenTire: (pos, packet, {String? vehicleId}) => Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => TireDetailScreen(position: pos, sensor: packet),
+            builder: (_) => TireDetailScreen(
+                position: pos, sensor: packet, vehicleId: vehicleId),
           ),
         ),
         onAddTire: (pos, {String? vehicleId}) => Navigator.of(context).push(
