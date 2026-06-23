@@ -57,13 +57,23 @@ workflows:
           xcode-project build-ipa \
             --workspace "ios/Runner.xcworkspace" \
             --scheme "Runner"
+      - name: Upload to TestFlight
+        script: |
+          IPA=$(find build/ios/ipa -name "*.ipa" | head -1)
+          echo "Uploading: $IPA"
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --username "$APPLE_ID" \
+            --password "$APP_SPECIFIC_PASSWORD" \
+            --verbose > /tmp/altool.log 2>&1
+          STATUS=$?
+          cat /tmp/altool.log
+          exit $STATUS
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
     publishing:
-      app_store_connect:
-        apple_id: $APPLE_ID
-        password: $APP_SPECIFIC_PASSWORD
       email:
         recipients:
           - rgeorgiev@findy.eu
