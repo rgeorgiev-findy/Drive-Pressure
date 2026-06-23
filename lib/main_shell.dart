@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'models/tire_sensor.dart';
 import 'services/ble_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/bottom_nav.dart';
@@ -10,6 +9,7 @@ import 'screens/alerts_screen.dart';
 import 'screens/limits_screen.dart';
 import 'screens/tire_detail_screen.dart';
 import 'screens/pair_ble_screen.dart';
+import 'screens/settings_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -54,12 +54,18 @@ class _MainShellState extends State<MainShell> {
             builder: (_) => TireDetailScreen(position: pos, sensor: packet),
           ),
         ),
-        onAddTire: (pos) => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => PairBleScreen(tirePosition: pos)),
+        onAddTire: (pos, {String? vehicleId}) => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PairBleScreen(
+              tirePosition: pos,
+              vehicleId: vehicleId,
+            ),
+          ),
         ),
       ),
       const AlertsScreen(),
       const LimitsScreen(),
+      const SettingsScreen(),
     ];
 
     return Scaffold(

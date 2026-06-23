@@ -7,11 +7,13 @@ import 'services/ble_service.dart';
 import 'services/limits_service.dart';
 import 'services/alerts_service.dart';
 import 'services/trend_service.dart';
+import 'services/vehicle_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
   await SensorStore.init();
+  await VehicleService.init();
   await BleService.instance.init();
   await LimitsService.instance.init();
   AlertsService.instance.init();

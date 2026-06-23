@@ -1,4 +1,4 @@
-enum TirePosition { fl, fr, rl, rr }
+enum TirePosition { fl, fr, rl, rr, l, r }
 
 extension TirePositionX on TirePosition {
   String get label {
@@ -7,6 +7,8 @@ extension TirePositionX on TirePosition {
       case TirePosition.fr: return 'Front Right';
       case TirePosition.rl: return 'Rear Left';
       case TirePosition.rr: return 'Rear Right';
+      case TirePosition.l:  return 'Left';
+      case TirePosition.r:  return 'Right';
     }
   }
 
@@ -16,6 +18,8 @@ extension TirePositionX on TirePosition {
       case TirePosition.fr: return 'FR';
       case TirePosition.rl: return 'RL';
       case TirePosition.rr: return 'RR';
+      case TirePosition.l:  return 'L';
+      case TirePosition.r:  return 'R';
     }
   }
 }

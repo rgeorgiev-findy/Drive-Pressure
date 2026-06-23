@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/tire_sensor.dart';
 import '../services/ble_service.dart';
 import '../services/sensor_store.dart';
+import '../services/vehicle_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
 import '../widgets/status_row.dart';
@@ -11,7 +12,15 @@ import '../widgets/glass.dart';
 class PairBleScreen extends StatefulWidget {
   final TirePosition tirePosition;
 
-  const PairBleScreen({super.key, required this.tirePosition});
+  /// When set, pairing saves to VehicleService for this vehicle.
+  /// When null, falls back to legacy SensorStore.
+  final String? vehicleId;
+
+  const PairBleScreen({
+    super.key,
+    required this.tirePosition,
+    this.vehicleId,
+  });
 
   @override
   State<PairBleScreen> createState() => _PairBleScreenState();
@@ -45,9 +54,18 @@ class _PairBleScreenState extends State<PairBleScreen> {
   }
 
   Future<void> _selectSensor(SensorPacket packet) async {
-    await SensorStore.instance.saveSensor(widget.tirePosition, packet.mac);
+    await _savePairing(packet.mac);
     if (!mounted) return;
     Navigator.of(context).pop();
+  }
+
+  Future<void> _savePairing(String mac) async {
+    final vid = widget.vehicleId;
+    if (vid != null) {
+      await VehicleService.instance.pairSensor(vid, widget.tirePosition, mac);
+    } else {
+      await SensorStore.instance.saveSensor(widget.tirePosition, mac);
+    }
   }
 
   @override
@@ -242,7 +260,7 @@ class _PairBleScreenState extends State<PairBleScreen> {
             onPressed: () async {
               final mac = controller.text.trim().toUpperCase();
               if (mac.length == 17) {
-                await SensorStore.instance.saveSensor(widget.tirePosition, mac);
+                await _savePairing(mac);
                 if (mounted) Navigator.of(context)
                   ..pop()
                   ..pop();

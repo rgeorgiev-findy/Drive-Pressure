@@ -10,6 +10,7 @@ class AppBottomNav extends StatelessWidget {
     (Icons.home_filled, 'HOME'),
     (Icons.notifications_none_rounded, 'ALERTS'),
     (Icons.tune_rounded, 'LIMITS'),
+    (Icons.settings_rounded, 'SETTINGS'),
   ];
 
   @override
