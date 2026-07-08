@@ -23,6 +23,10 @@ class CarPlayService {
 
   void init() {
     if (!Platform.isIOS) return;
+    // Handle "connected" from native when CarPlay scene attaches
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'connected') _sendUpdate();
+    });
     _sendUpdate();
     _vehicleSub = VehicleService.instance.changes.listen((_) => _sendUpdate());
     _trendSub = TrendService.instance.updates.listen(_onTrend);

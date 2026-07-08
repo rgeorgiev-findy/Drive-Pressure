@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'services/ble_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/bottom_nav.dart';
@@ -20,7 +21,7 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
-  bool _btOff = false;
+  BluetoothAdapterState _btState = BluetoothAdapterState.unknown;
   StreamSubscription<BluetoothAdapterState>? _btSub;
 
   @override
@@ -29,12 +30,9 @@ class _MainShellState extends State<MainShell> {
     BleService.instance.startScan();
 
     _btSub = FlutterBluePlus.adapterState.listen((state) {
-      final off = state != BluetoothAdapterState.on;
-      if (off != _btOff) {
-        setState(() => _btOff = off);
-        // Re-start scan when BT comes back on
-        if (!off) BleService.instance.startScan();
-      }
+      if (state == _btState) return;
+      setState(() => _btState = state);
+      if (state == BluetoothAdapterState.on) BleService.instance.startScan();
     });
   }
 
@@ -73,8 +71,10 @@ class _MainShellState extends State<MainShell> {
       backgroundColor: AppColors.bg,
       body: Column(
         children: [
-          // ── Bluetooth off banner ──────────────────────────────────────────
-          if (_btOff)
+          // ── Bluetooth banner ──────────────────────────────────────────────
+          if (_btState == BluetoothAdapterState.off ||
+              _btState == BluetoothAdapterState.unauthorized ||
+              _btState == BluetoothAdapterState.unavailable)
             Material(
               color: Colors.transparent,
               child: Container(
@@ -93,15 +93,20 @@ class _MainShellState extends State<MainShell> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Bluetooth is off — enable it to receive sensor data',
+                        _btState == BluetoothAdapterState.unauthorized
+                            ? 'Allow Bluetooth access in Settings to receive sensor data'
+                            : 'Bluetooth is off — enable it to receive sensor data',
                         style: AppText.mono(
                             size: 12, color: AppColors.redText),
                       ),
                     ),
                     GestureDetector(
                       onTap: () async {
-                        // On Android 12+ we can't auto-enable BT; open settings
-                        await FlutterBluePlus.turnOn();
+                        if (_btState == BluetoothAdapterState.unauthorized) {
+                          await openAppSettings();
+                        } else {
+                          await FlutterBluePlus.turnOn();
+                        }
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -111,7 +116,10 @@ class _MainShellState extends State<MainShell> {
                           border: Border.all(
                               color: AppColors.redText.withOpacity(0.5)),
                         ),
-                        child: Text('ENABLE',
+                        child: Text(
+                            _btState == BluetoothAdapterState.unauthorized
+                                ? 'SETTINGS'
+                                : 'ENABLE',
                             style: AppText.mono(
                                 size: 11, color: AppColors.redText)),
                       ),

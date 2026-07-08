@@ -77,20 +77,24 @@ class BleService {
 
   Future<void> startScan() async {
     await init();
+
+    // Never call startScan when BT is not supported or not on
+    if (!await FlutterBluePlus.isSupported) return;
+
     final granted = await requestPermissions();
     if (!granted) return;
 
-    if (await FlutterBluePlus.isScanning.first) {
-      await FlutterBluePlus.stopScan();
-    }
-
-    await FlutterBluePlus.startScan(
-      continuousUpdates: true,
-      removeIfGone: const Duration(seconds: 15),
-    );
-
-    _scanSub?.cancel();
-    _scanSub = FlutterBluePlus.onScanResults.listen(_onResults);
+    try {
+      if (FlutterBluePlus.isScanningNow) {
+        await FlutterBluePlus.stopScan();
+      }
+      await FlutterBluePlus.startScan(
+        continuousUpdates: true,
+        removeIfGone: const Duration(seconds: 15),
+      );
+      _scanSub?.cancel();
+      _scanSub = FlutterBluePlus.onScanResults.listen(_onResults);
+    } catch (_) {}
   }
 
   Future<void> stopScan() async {

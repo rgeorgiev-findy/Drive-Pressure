@@ -3,9 +3,11 @@ import Flutter
 
 let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadlessExecution: true)
 
+// Accessible from CarPlaySceneDelegate to notify Flutter when CarPlay connects
+var appCarPlayChannel: FlutterMethodChannel?
+
 @main
 @objc class AppDelegate: FlutterAppDelegate {
-  private var carPlayChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
@@ -14,12 +16,11 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
     flutterEngine.run()
     GeneratedPluginRegistrant.register(with: flutterEngine)
 
-    // Receive live tire data from Flutter and forward to the CarPlay scene
-    carPlayChannel = FlutterMethodChannel(
+    appCarPlayChannel = FlutterMethodChannel(
       name: "eu.findy.drivePressure/carplay",
       binaryMessenger: flutterEngine.binaryMessenger
     )
-    carPlayChannel?.setMethodCallHandler { call, result in
+    appCarPlayChannel?.setMethodCallHandler { call, result in
       if call.method == "update",
          let data = call.arguments as? [String: Any] {
         carPlaySceneDelegate?.receiveVehicles(data)
