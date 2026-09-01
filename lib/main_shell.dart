@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/ble_service.dart';
+import 'services/carplay_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/bottom_nav.dart';
 import 'screens/vehicle_screen.dart';
@@ -19,14 +21,16 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _index = 0;
   BluetoothAdapterState _btState = BluetoothAdapterState.unknown;
   StreamSubscription<BluetoothAdapterState>? _btSub;
+  StreamSubscription<bool>? _carplaySub;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     BleService.instance.startScan();
 
     _btSub = FlutterBluePlus.adapterState.listen((state) {
@@ -34,11 +38,33 @@ class _MainShellState extends State<MainShell> {
       setState(() => _btState = state);
       if (state == BluetoothAdapterState.on) BleService.instance.startScan();
     });
+
+    // When CarPlay connects while app is backgrounded, resume BLE scanning.
+    if (Platform.isIOS) {
+      _carplaySub = CarPlayService.instance.connectionState.listen((connected) {
+        if (connected) BleService.instance.startScan();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!Platform.isIOS) return;
+    if (state == AppLifecycleState.paused) {
+      // Only stop BLE when going to background WITHOUT CarPlay active.
+      if (!CarPlayService.instance.isConnected) {
+        BleService.instance.stopScan();
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      BleService.instance.startScan();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _btSub?.cancel();
+    _carplaySub?.cancel();
     BleService.instance.stopScan();
     super.dispose();
   }

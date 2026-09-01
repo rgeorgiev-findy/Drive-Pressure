@@ -9,6 +9,7 @@ import 'services/alerts_service.dart';
 import 'services/trend_service.dart';
 import 'services/vehicle_service.dart';
 import 'services/carplay_service.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,10 +17,12 @@ Future<void> main() async {
   await SensorStore.init();
   await VehicleService.init();
   await BleService.instance.init();
+  await BleService.instance.restoreFromCache();
   await LimitsService.instance.init();
   AlertsService.instance.init();
   TrendService.instance.init();
   CarPlayService.instance.init();
+  await NotificationService.instance.init();
   runApp(const DrivePressureApp());
 }
 

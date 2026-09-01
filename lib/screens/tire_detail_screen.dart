@@ -213,6 +213,7 @@ class _TireDetailScreenState extends State<TireDetailScreen> {
                           _infoRow('MAC address', _current.mac, divider: true),
                           _infoRow('TX trigger', _triggerLabel(_current.txTrigger),
                               divider: true),
+                          _batteryRow(_current, divider: true),
                           _infoRow('Last seen', sinceStr),
                         ],
                       ),
@@ -377,6 +378,70 @@ class _TireDetailScreenState extends State<TireDetailScreen> {
                 textAlign: TextAlign.end,
                 style: AppText.mono(size: 11, color: AppColors.textSoft)),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _batteryRow(SensorPacket p, {bool divider = false}) {
+    final cap = p.batteryCapacity;
+    return Container(
+      decoration: divider
+          ? BoxDecoration(
+              border: Border(
+                  bottom: BorderSide(color: Colors.white.withOpacity(0.06))))
+          : null,
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('Battery', style: AppText.mono(size: 11, color: AppColors.dimmer)),
+          if (cap < 0)
+            Text('—', style: AppText.mono(size: 11, color: AppColors.muted))
+          else
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Visual bar: 10 segments
+                SizedBox(
+                  width: 60,
+                  height: 10,
+                  child: Row(
+                    children: List.generate(10, (i) {
+                      final filled = i < cap;
+                      final color = cap <= 2
+                          ? AppColors.red
+                          : cap <= 4
+                              ? AppColors.amber
+                              : AppColors.orange;
+                      return Expanded(
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 1),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(2),
+                            color: filled
+                                ? color
+                                : Colors.white.withOpacity(0.10),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${(cap * 10).clamp(0, 100)}%',
+                  style: AppText.mono(
+                    size: 11,
+                    color: cap <= 2
+                        ? AppColors.redText
+                        : cap <= 4
+                            ? AppColors.amber
+                            : AppColors.textSoft,
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );

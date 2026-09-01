@@ -1,23 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Palette — AURA liquid-glass background + APEX cockpit accents.
+/// Palette — FORGE dark automotive theme with orange accent.
 class AppColors {
-  static const bg = Color(0xFF08111C);
-  static const panel = Color(0xFF0A1420);
-  static const cyan = Color(0xFF34E3FF);
-  static const cyanBright = Color(0xFF3DE7FF);
-  static const cyanDark = Color(0xFF13B9DC);
-  static const red = Color(0xFFFF5470);
+  static const bg        = Color(0xFF080C10);
+  static const panel     = Color(0xFF0C1018);
+  static const ink       = Color(0xFF180900);   // dark text on orange buttons
+
+  // Primary accent — orange (replaces the old cyan)
+  static const cyan      = Color(0xFFFF6A18);   // "cyan" kept for compat — now orange
+  static const cyanBright= Color(0xFFFF7D2E);
+  static const cyanDark  = Color(0xFFE05210);
+
+  // Named aliases for new code
+  static const orange       = Color(0xFFFF6A18);
+  static const orangeBright = Color(0xFFFF7D2E);
+  static const orangeDark   = Color(0xFFE05210);
+
+  // Status colours (unchanged)
+  static const red     = Color(0xFFFF5470);
   static const redText = Color(0xFFFF7088);
-  static const amber = Color(0xFFFFB02E);
-  static const green = Color(0xFF34E0A6);
-  static const text = Color(0xFFEAF2F8);
+  static const amber   = Color(0xFFFFB02E);
+  static const green   = Color(0xFF34E0A6);
+
+  // Text ramp (unchanged)
+  static const text     = Color(0xFFEAF2F8);
   static const textSoft = Color(0xFFCDD9E2);
-  static const dim = Color(0xFF8AA0B2);
-  static const dimmer = Color(0xFF6F8597);
-  static const muted = Color(0xFF52606F);
-  static const ink = Color(0xFF03141A);
+  static const dim      = Color(0xFF8AA0B2);
+  static const dimmer   = Color(0xFF6F8597);
+  static const muted    = Color(0xFF52606F);
 }
 
 /// Typography helpers (google_fonts, loaded at runtime).

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import '../models/tire_sensor.dart';
+import 'alerts_service.dart';
 import 'ble_service.dart';
 import 'limits_service.dart';
 import 'trend_service.dart';
@@ -19,17 +20,58 @@ class CarPlayService {
 
   StreamSubscription<void>? _vehicleSub;
   StreamSubscription<TirePosition>? _trendSub;
+  StreamSubscription<void>? _alertSub;
   Timer? _debounce;
+
+  bool _connected = false;
+  bool get isConnected => _connected;
+
+  // Track which alerts have already been shown on CarPlay to avoid re-showing them
+  final _shownAlerts = <String>{};
+
+  /// Fires true when CarPlay connects, false when it disconnects.
+  final _connectionController = StreamController<bool>.broadcast();
+  Stream<bool> get connectionState => _connectionController.stream;
 
   void init() {
     if (!Platform.isIOS) return;
-    // Handle "connected" from native when CarPlay scene attaches
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'connected') _sendUpdate();
+      if (call.method == 'connected') {
+        _connected = true;
+        _connectionController.add(true);
+        _sendUpdate();
+        _forwardAlerts(); // show any active alerts immediately on connect
+      } else if (call.method == 'disconnected') {
+        _connected = false;
+        _connectionController.add(false);
+      }
     });
     _sendUpdate();
     _vehicleSub = VehicleService.instance.changes.listen((_) => _sendUpdate());
-    _trendSub = TrendService.instance.updates.listen(_onTrend);
+    _trendSub   = TrendService.instance.updates.listen(_onTrend);
+    _alertSub   = AlertsService.instance.changes.listen((_) => _forwardAlerts());
+  }
+
+  void _forwardAlerts() {
+    if (!_connected) return;
+    final active = AlertsService.instance.active;
+    // Prune keys for resolved alerts
+    final activeKeys = active.map((a) => '${a.pos.name}_${a.type.name}').toSet();
+    _shownAlerts.retainAll(activeKeys);
+    // Find alerts not yet shown on CarPlay
+    final newAlerts = active
+        .where((a) => !_shownAlerts.contains('${a.pos.name}_${a.type.name}'))
+        .toList();
+    if (newAlerts.isEmpty) return;
+    for (final a in newAlerts) {
+      _shownAlerts.add('${a.pos.name}_${a.type.name}');
+    }
+    // Send ONE combined alert to avoid CPInterfaceController crash from rapid calls
+    final title = newAlerts.length == 1
+        ? newAlerts.first.message
+        : 'TPMS — ${newAlerts.length} alerts';
+    final body = newAlerts.map((a) => a.detail).join('  ·  ');
+    _channel.invokeMethod('alert', {'title': title, 'body': body}).catchError((_) {});
   }
 
   void _onTrend(TirePosition _) {
@@ -85,6 +127,7 @@ class CarPlayService {
   void dispose() {
     _vehicleSub?.cancel();
     _trendSub?.cancel();
+    _alertSub?.cancel();
     _debounce?.cancel();
   }
 }

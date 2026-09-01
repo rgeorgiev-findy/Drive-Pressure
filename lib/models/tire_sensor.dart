@@ -41,6 +41,11 @@ class SensorPacket {
   final int firmwareVersion;
   final int rssi;
   final DateTime timestamp;
+  /// Remaining capacity 0-10 (10 = full), -1 if not reported by sensor.
+  final int batteryCapacity;
+  /// True for packets from the new AES-128-CCM service data format (UUID 0x54504D53).
+  /// These always contain the real MAC, so no trigger requirement for pairing.
+  final bool newFormat;
 
   const SensorPacket({
     required this.mac,
@@ -53,9 +58,17 @@ class SensorPacket {
     required this.firmwareVersion,
     required this.rssi,
     required this.timestamp,
+    this.batteryCapacity = -1,
+    this.newFormat = false,
   });
 
-  /// Sensor is LF-triggered or DeltaP-triggered → show in pair screen.
+  /// Battery percentage string, e.g. "70%" or null if not reported.
+  String? get batteryPercent =>
+      batteryCapacity >= 0 ? '${(batteryCapacity * 10).clamp(0, 100)}%' : null;
+
+  /// Show in pair screen:
+  /// • Legacy sensors: must be LF-triggered or deltaP-triggered so the user can identify which tire.
+  /// • New-format sensors: MAC is always in the encrypted payload, so any broadcast is fine.
   bool get isPairingCandidate =>
-      txTrigger == TxTrigger.lf || txTrigger == TxTrigger.deltaP;
+      newFormat || txTrigger == TxTrigger.lf || txTrigger == TxTrigger.deltaP;
 }

@@ -101,17 +101,19 @@ class _SplashScreenState extends State<SplashScreen>
                     child: RichText(
                       text: TextSpan(children: [
                         TextSpan(
-                            text: 'Findy',
+                            text: 'FINDY ',
                             style: AppText.chakra(
                                 size: 32,
                                 color: AppColors.text,
-                                spacing: -0.5)),
+                                weight: FontWeight.w700,
+                                spacing: 1.0)),
                         TextSpan(
                             text: 'TPMS',
                             style: AppText.chakra(
                                 size: 32,
-                                color: AppColors.cyan,
-                                spacing: -0.5)),
+                                color: AppColors.orange,
+                                weight: FontWeight.w700,
+                                spacing: 1.0)),
                       ]),
                     ),
                   ),
@@ -120,7 +122,7 @@ class _SplashScreenState extends State<SplashScreen>
                 Opacity(
                   opacity: _subtitleOpacity.value,
                   child: Text(
-                    'LIVE TPMS · BLUETOOTH',
+                    'TIRE PRESSURE · CARPLAY',
                     style: AppText.mono(
                         size: 11, color: AppColors.dimmer, spacing: 3),
                   ),

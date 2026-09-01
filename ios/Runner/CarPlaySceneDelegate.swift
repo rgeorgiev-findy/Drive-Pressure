@@ -9,6 +9,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
     private var interfaceController: CPInterfaceController?
     private var vehicles: [[String: Any]] = []
+    private var _alertPresenting = false
 
     func templateApplicationScene(
         _ scene: CPTemplateApplicationScene,
@@ -27,8 +28,24 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         _ scene: CPTemplateApplicationScene,
         didDisconnectInterfaceController interfaceController: CPInterfaceController
     ) {
+        appCarPlayChannel?.invokeMethod("disconnected", arguments: nil)
         carPlaySceneDelegate = nil
         self.interfaceController = nil
+        _alertPresenting = false
+    }
+
+    func showAlert(title: String, body: String) {
+        guard let ic = interfaceController, !_alertPresenting else { return }
+        _alertPresenting = true
+        let dismiss = CPAlertAction(title: "OK", style: .cancel) { [weak self, weak ic] _ in
+            ic?.dismissTemplate(animated: true, completion: nil)
+            DispatchQueue.main.async { self?._alertPresenting = false }
+        }
+        let full  = body.isEmpty ? title : "\(title) — \(body)"
+        let alert = CPAlertTemplate(titleVariants: [full, title], actions: [dismiss])
+        ic.presentTemplate(alert, animated: true) { [weak self] success, _ in
+            if !success { DispatchQueue.main.async { self?._alertPresenting = false } }
+        }
     }
 
     func receiveVehicles(_ data: [String: Any]) {
@@ -167,11 +184,11 @@ enum TireTile {
         let tSpkY  = pSpkY + spkH
 
         // ── Background ───────────────────────────────────────────────────────
-        UIColor(r: 8, g: 16, b: 28).setFill()
+        UIColor(r: 8, g: 12, b: 16).setFill()
         UIBezierPath(rect: r).fill()
 
         // Value strip — slightly lighter background
-        UIColor(r: 13, g: 22, b: 38).setFill()
+        UIColor(r: 13, g: 16, b: 22).setFill()
         UIBezierPath(rect: CGRect(x: r.minX, y: valY, width: W, height: valH)).fill()
 
         // Outer border
@@ -319,7 +336,7 @@ enum TireDashboard {
     }
 
     private static func draw(positions: [String], tires: [String: Any], in r: CGRect) {
-        UIColor(r: 8, g: 16, b: 28).setFill()
+        UIColor(r: 8, g: 12, b: 16).setFill()
         UIBezierPath(rect: r).fill()
 
         let cols  = 2
@@ -357,7 +374,7 @@ enum TireDashboard {
 // MARK: - Colors & extensions
 
 enum CPColor {
-    static let cyan  = UIColor(r: 52,  g: 227, b: 255)
+    static let cyan  = UIColor(r: 255, g: 106, b: 24)   // orange #FF6A18 (matches app theme)
     static let amber = UIColor(r: 255, g: 176, b: 46)
     static let red   = UIColor(r: 255, g: 84,  b: 112)
 }

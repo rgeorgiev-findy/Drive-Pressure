@@ -6,6 +6,10 @@
 	<string>FindyTPMS uses Bluetooth to receive data from your TPMS tire pressure sensors.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>FindyTPMS uses Bluetooth to receive data from your TPMS tire pressure sensors.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
