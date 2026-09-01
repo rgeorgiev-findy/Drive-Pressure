@@ -1,17 +1,40 @@
-# drive_pressure
+# Drive Pressure — FindyTPMS
 
-A new Flutter project.
+iOS app for real-time TPMS (Tyre Pressure Monitoring System) via BLE.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- Live tyre pressure, temperature, and battery status from BLE TPMS sensors
+- Background BLE scanning (works when app is terminated)
+- CarPlay support
+- Push notifications for low/high pressure and low battery
+- Sensor pairing flow
+- Configurable pressure limits per tyre position
 
-A few resources to get you started if this is your first Flutter project:
+## Sensor Protocol
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Sensors advertise with 32-bit service UUID `0x54504D53` ("TPMS").  
+The 22-byte service data payload is AES-128-CCM encrypted (RFC 3610):
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+| Bytes | Content |
+|-------|---------|
+| 0–4   | Nonce (5 bytes) |
+| 5–17  | Ciphertext (13 bytes) |
+| 18–21 | Authentication tag (4 bytes) |
+
+CCM parameters: N=7, L=8, t=4.  
+Decrypted plaintext: MAC (6B) · gauge pressure LE ×10 mbar (2B) · temp raw−56 (1B) · bat/tyre nibbles (1B) · VIN LE (2B) · flags (1B).
+
+## Requirements
+
+- Flutter 3.x
+- iOS 15.0+
+- Xcode 15+
+
+## Build
+
+```bash
+flutter pub get
+cd ios && pod install && cd ..
+flutter build ipa
+```
